@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools==75.8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netops-copilot-api"
+version = "0.1.0"
+description = "NetOps Copilot domain API"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi==0.115.8",
+  "pydantic-settings==2.7.1",
+  "uvicorn[standard]==0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx==0.28.1",
+  "mypy==1.14.1",
+  "pre-commit==4.6.0",
+  "pytest==8.3.4",
+  "ruff==0.9.7",
+]
+
+[project.scripts]
+netops-api = "netops_api.main:run"
+
+[tool.setuptools]
+package-dir = {"" = "services/api"}
+
+[tool.setuptools.packages.find]
+where = ["services/api"]
+include = ["netops_api*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["services/api/tests"]
+pythonpath = ["services/api"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["services/api"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["netops_api"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["services/api/netops_api"]
+strict = true
+warn_unused_configs = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false

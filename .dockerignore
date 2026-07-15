@@ -1,0 +1,44 @@
+# Never send repository history, local configuration, or credentials to a build.
+.git/
+.gitignore
+.gitattributes
+.env
+.env.*
+**/.env
+**/.env.*
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Host dependency directories and generated caches are never Docker build input.
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/
+*.py[cod]
+*.tsbuildinfo
+*.log
+.DS_Store
+**/.DS_Store
+
+# The root static prototype is historical only; neither application may build it.
+app.js
+index.html
+styles.css
+
+# These are not runtime build inputs for the API or web container.
+docs/
+infra/
+services/api/tests/
+apps/web/tests/

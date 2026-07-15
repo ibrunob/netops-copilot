@@ -1,0 +1,74 @@
+name: Promote signed images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: image-promotion-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    # This remains inert until the repository owner configures the protected
+    # production environment and explicitly enables promotion in repository
+    # variables. A manual dispatch from any other branch is rejected.
+    if: github.ref == 'refs/heads/main' && vars.NETOPS_RELEASE_ENABLED == 'true'
+    name: Promote and sign ${{ matrix.component }}
+    runs-on: ubuntu-24.04
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            dockerfile: services/api/Dockerfile
+          - component: web
+            dockerfile: apps/web/Dockerfile
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Define immutable GHCR image name
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}/netops-${COMPONENT}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=sha-${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build and push immutable image
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          provenance: mode=max
+          sbom: true
+      - name: Create GitHub provenance attestation
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - uses: sigstore/cosign-installer@2e2f661cd4be3a4b891a882064e49d0fed4b7b88 # v3.9.0
+      - name: Keylessly sign and verify the immutable digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          image_ref="${IMAGE_NAME}@${DIGEST}"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/promote-images.yml@refs/heads/main"
+          cosign sign --yes "$image_ref"
+          cosign verify \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$image_ref"

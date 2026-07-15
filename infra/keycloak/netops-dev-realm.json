@@ -1,0 +1,31 @@
+{
+  "realm": "netops-dev",
+  "displayName": "NetOps Copilot (local development)",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "org_admin", "description": "Organization administrator" },
+      { "name": "operator", "description": "Incident operator" },
+      { "name": "approver", "description": "Human approver" },
+      { "name": "auditor", "description": "Read-only auditor" },
+      { "name": "integration_admin", "description": "Integration administrator" },
+      { "name": "platform_admin", "description": "Platform administrator" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "netops-web",
+      "name": "NetOps Copilot web (local)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ]
+}

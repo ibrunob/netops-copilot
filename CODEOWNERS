@@ -1,0 +1,17 @@
+# Replace @brunob with the appropriate GitHub team before enabling required
+# review rules. Keeping these paths explicit makes the intended ownership clear
+# without giving the historical static prototype production ownership.
+
+* @brunob
+/apps/web/ @brunob
+/services/api/ @brunob
+/services/worker/ @brunob
+/services/connector-agent/ @brunob
+/packages/api-client/ @brunob
+/infra/ @brunob
+/docs/ @brunob
+/.github/ @brunob
+/Makefile @brunob
+/.env.example @brunob
+/.pre-commit-config.yaml @brunob
+/SECURITY.md @brunob
