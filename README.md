@@ -39,7 +39,7 @@ NEXT_TELEMETRY_DISABLED=1 npm --prefix apps/web run build
 
 CI executes the same commands, including the optimized production build.
 
-The current implementation includes a Next.js product shell, a FastAPI OIDC resource-server boundary, local platform profiles, immutable case-transition engine, Cisco IOS Phase 2 lifetime validator, and line-preserving secret redaction. Persistence with tenant RLS, authenticated web UX, triage workflows, retrieval, and AI analysis remain in their dependency-ordered build stages.
+The current implementation includes a Next.js product shell, a FastAPI OIDC resource-server boundary, local platform profiles, immutable case-transition engine, Cisco IOS Phase 2 lifetime validator, and line-preserving secret redaction. The first tenant schema now uses PostgreSQL RLS and a separate runtime database role; run `make test-rls` to execute its real isolated-database adversarial checks. Authenticated web UX, triage workflows, retrieval, and AI analysis remain in their dependency-ordered build stages.
 
 The repository now also has the target worker, connector-agent, generated-client,
 cross-service test, and ADR boundaries. They contain no fake runtime behavior:

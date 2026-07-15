@@ -47,6 +47,9 @@ minversion = "8.0"
 testpaths = ["services/api/tests"]
 pythonpath = ["services/api"]
 addopts = "-ra --strict-markers"
+markers = [
+  "integration: requires the isolated PostgreSQL test service and explicit test DSNs",
+]
 
 [tool.ruff]
 target-version = "py312"

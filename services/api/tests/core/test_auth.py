@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any
 from uuid import UUID
@@ -32,6 +33,18 @@ class StubTokenVerifier:
         if isinstance(self.principal, Exception):
             raise self.principal
         return self.principal
+
+
+class StubTenantDatabase:
+    """Route-level stand-in that records the identity supplied to the DB boundary."""
+
+    def __init__(self) -> None:
+        self.organization_ids: list[UUID] = []
+
+    @contextmanager
+    def tenant_connection(self, organization_id: UUID):  # type: ignore[no-untyped-def]
+        self.organization_ids.append(organization_id)
+        yield object()
 
 
 class StubKeyResolver:
@@ -92,11 +105,15 @@ def _principal() -> AuthenticatedPrincipal:
 
 
 def _replace_token_verifier(
-    app: FastAPI, token_verifier: StubTokenVerifier
-) -> None:
+    app: FastAPI, token_verifier: StubTokenVerifier, database: StubTenantDatabase | None = None
+) -> StubTenantDatabase:
+    resolved_database = database or StubTenantDatabase()
     app.state.dependencies = replace(
-        get_application_dependencies(app), token_verifier=token_verifier
+        get_application_dependencies(app),
+        token_verifier=token_verifier,
+        database=resolved_database,  # type: ignore[arg-type]
     )
+    return resolved_database
 
 
 def test_principal_is_built_from_signed_claims_with_no_implicit_asset_grant() -> None:
@@ -200,7 +217,7 @@ def test_identity_endpoint_requires_a_bearer_token(client: TestClient) -> None:
 def test_identity_endpoint_returns_only_verified_identity_claims(
     app: FastAPI, client: TestClient
 ) -> None:
-    _replace_token_verifier(app, StubTokenVerifier(_principal()))
+    database = _replace_token_verifier(app, StubTokenVerifier(_principal()))
 
     response = client.get("/v1/auth/me", headers={"Authorization": "Bearer access-token"})
 
@@ -211,6 +228,7 @@ def test_identity_endpoint_returns_only_verified_identity_claims(
         "roles": ["operator"],
         "asset_ids": [str(ASSET_ID)],
     }
+    assert database.organization_ids == [ORGANIZATION_ID]
 
 
 def test_identity_endpoint_hides_invalid_token_details(

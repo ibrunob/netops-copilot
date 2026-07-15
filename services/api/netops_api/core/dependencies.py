@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
 from dataclasses import dataclass
 from typing import Annotated, cast
 
 from fastapi import Depends, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import Connection
+from sqlalchemy.exc import SQLAlchemyError
 
 from netops_api.api.errors import ApiError
 from netops_api.core.auth import (
@@ -18,6 +20,7 @@ from netops_api.core.auth import (
     JwtTokenVerifier,
 )
 from netops_api.core.config import Settings
+from netops_api.core.database import TenantContextError, TenantDatabase
 from netops_api.domain.cases import CaseRole
 
 
@@ -25,13 +28,15 @@ from netops_api.domain.cases import CaseRole
 class ApplicationDependencies:
     """Application-owned dependency container.
 
-    Persistence and external clients are added here as explicit typed ports rather
-    than instantiated from request handlers. The JWT verifier is present now so
-    every future route derives tenant scope from the same signed principal.
+    Persistence and external clients are explicit typed ports rather than being
+    instantiated from request handlers. The JWT verifier and tenant database
+    ensure every organization-owned operation derives scope from one signed
+    principal and opens a transaction with that scope before issuing SQL.
     """
 
     settings: Settings
     token_verifier: JwtTokenVerifier
+    database: TenantDatabase | None
 
 
 def build_dependencies(settings: Settings) -> ApplicationDependencies:
@@ -39,6 +44,11 @@ def build_dependencies(settings: Settings) -> ApplicationDependencies:
     return ApplicationDependencies(
         settings=settings,
         token_verifier=JwtTokenVerifier.from_settings(settings.auth),
+        database=(
+            TenantDatabase.from_url(settings.database_url.get_secret_value())
+            if settings.database_url is not None
+            else None
+        ),
     )
 
 
@@ -93,6 +103,31 @@ async def get_current_principal(
 
 
 PrincipalDependency = Annotated[AuthenticatedPrincipal, Depends(get_current_principal)]
+
+
+def get_tenant_connection(
+    dependencies: Annotated[ApplicationDependencies, Depends(get_dependencies)],
+    principal: PrincipalDependency,
+) -> Generator[Connection, None, None]:
+    """Open a database transaction scoped only from verified identity claims."""
+    if dependencies.database is None:
+        raise ApiError(
+            status_code=503,
+            code="persistence_unavailable",
+            message="Tenant persistence is not configured for this API instance.",
+        )
+    try:
+        with dependencies.database.tenant_connection(principal.organization_id) as connection:
+            yield connection
+    except (SQLAlchemyError, TenantContextError) as exc:
+        raise ApiError(
+            status_code=503,
+            code="tenant_context_unavailable",
+            message="Tenant persistence is temporarily unavailable.",
+        ) from exc
+
+
+TenantConnectionDependency = Annotated[Connection, Depends(get_tenant_connection)]
 
 
 def require_roles(

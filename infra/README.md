@@ -96,9 +96,12 @@ you mean to reset. Never use that procedure for a shared environment.
 PostgreSQL initialization creates the `temporal`, `temporal_visibility`, and
 `keycloak` service databases. It enables `vector`, `pgcrypto`, and
 `pg_stat_statements`, and `pg_trgm` only in the application database.
-Application migrations belong to Alembic and are not run by Compose. The test
-profile has its own volume and initializes only its `netops_test` application
-database with the same extensions; it never touches the core PostgreSQL volume.
+Application migrations belong to Alembic. The core Compose profile runs its
+one-shot `migrate` service before the API starts, using the PostgreSQL bootstrap
+owner only for schema work; the API then uses the separate `netops_app` role.
+The test profile has its own volume and initializes only its `netops_test`
+application database with the same extensions; it never touches the core
+PostgreSQL volume.
 
 ## Migrations and isolated test database
 
@@ -110,6 +113,7 @@ ignored root `.env` only long enough to construct a local URL:
 ```sh
 make migrate
 make test-migrate
+make test-rls
 ```
 
 `make migrate` targets the core application database. `make test-migrate`
@@ -120,10 +124,12 @@ implicitly. Test suites that need PostgreSQL should use `make test-migrate`
 first, isolate their data with transactions/schema fixtures, and never point a
 test URL at the core port `5432`.
 
-The current Alembic scaffold has no revisions and requires the pinned
-`alembic` and SQLAlchemy runtime dependencies supplied by the persistence
-slice. The first migration must introduce organization-scoped tables, RLS, and
-audit contracts together; this platform slice adds no tables or policies.
+The first revision creates tenant identity, asset, settings, and audit tables;
+it uses fail-closed PostgreSQL RLS and an unprivileged `netops_app` role. Run
+`make test-rls` to exercise direct SQL, the runtime tenant-transaction boundary,
+cross-tenant reads/writes, malformed or missing context, connection reuse, and
+`FORCE ROW LEVEL SECURITY` against the isolated test database. It is an
+acceptance gate, not a mocked unit test.
 
 To dispose of only test data, run the guarded command below. It does not affect
 the core database or any other named volume.
@@ -164,9 +170,10 @@ PostgreSQL, Redis, MinIO, Temporal, Temporal UI, Keycloak, Redpanda, Prometheus,
 Grafana, the API, and the web application each declare health checks. Dependents wait for the
 upstream health check instead of relying on container start order: Temporal and
 Keycloak wait for PostgreSQL, Temporal UI waits for Temporal, and the one-shot
-MinIO bootstrap waits for MinIO. The API waits for PostgreSQL, Redis, MinIO,
-bucket bootstrap, Temporal, and Keycloak before it starts; the web container
-then waits for the API process health check.
+MinIO bootstrap waits for MinIO. The one-shot migration service waits for
+PostgreSQL, and the API waits for its successful completion plus PostgreSQL,
+Redis, MinIO, bucket bootstrap, Temporal, and Keycloak; the web container then
+waits for the API process health check.
 
 The current API `/healthz` check confirms only that the ASGI process is serving.
 It is deliberately **not** described as a database or dependency readiness

@@ -10,7 +10,7 @@ BACKUP_FILE ?= tmp/backups/netops-local.dump
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate db-backup db-restore seed
+.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore seed
 
 help: ## Show the supported local development commands.
 
@@ -23,7 +23,7 @@ env: ## Create an untracked local environment file from the safe template.
 		chmod 600 "$(ENV_FILE)"; \
 	fi
 	@command -v openssl >/dev/null || { printf '%s\n' "openssl is required to generate local development secrets." >&2; exit 1; }
-	@for key in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD; do \
+	@for key in POSTGRES_PASSWORD POSTGRES_APP_PASSWORD MINIO_ROOT_PASSWORD KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD; do \
 		if ! grep -q "^$$key=.\+" "$(ENV_FILE)"; then \
 			printf '%s=%s\n' "$$key" "$$(openssl rand -hex 24)" >> "$(ENV_FILE)"; \
 		fi; \
@@ -97,7 +97,8 @@ migrate: env check-tools check-locks ## Apply Alembic migrations to the isolated
 
 	@set -a; . "./$(ENV_FILE)"; set +a; \
 		NETOPS_DATABASE_URL="postgresql+psycopg://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_PORT:-5432}/$$POSTGRES_DB"; \
-		export NETOPS_DATABASE_URL; \
+		NETOPS_APPLICATION_DB_PASSWORD="$$POSTGRES_APP_PASSWORD"; \
+		export NETOPS_DATABASE_URL NETOPS_APPLICATION_DB_PASSWORD; \
 		$(UV) run --frozen alembic -c $(ALEMBIC_CONFIG) upgrade head
 
 test-db-up: env ## Start the isolated PostgreSQL cluster used by migration and integration tests.
@@ -135,8 +136,17 @@ test-migrate: test-db-ready check-tools check-locks ## Apply Alembic migrations 
 
 	@set -a; . "./$(ENV_FILE)"; set +a; \
 		NETOPS_DATABASE_URL="postgresql+psycopg://$${POSTGRES_TEST_USER:-netops_test}:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
-		export NETOPS_DATABASE_URL; \
+		NETOPS_APPLICATION_DB_PASSWORD="$$POSTGRES_APP_PASSWORD"; \
+		export NETOPS_DATABASE_URL NETOPS_APPLICATION_DB_PASSWORD; \
 		$(UV) run --frozen alembic -c $(ALEMBIC_CONFIG) upgrade head
+
+test-rls: test-migrate check-tools check-locks ## Run real PostgreSQL tenant-isolation adversarial tests on the isolated test database.
+
+	@set -a; . "./$(ENV_FILE)"; set +a; \
+		NETOPS_RLS_OWNER_DATABASE_URL="postgresql+psycopg://$${POSTGRES_TEST_USER:-netops_test}:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
+		NETOPS_RLS_TEST_DATABASE_URL="postgresql+psycopg://netops_app:$$POSTGRES_APP_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
+		export NETOPS_RLS_OWNER_DATABASE_URL NETOPS_RLS_TEST_DATABASE_URL; \
+		$(UV) run --frozen pytest -m integration services/api/tests/integration/test_tenant_rls.py
 
 db-backup: env ## Create a custom-format application DB backup at BACKUP_FILE (default: tmp/backups/netops-local.dump).
 

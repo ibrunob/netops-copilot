@@ -42,6 +42,8 @@ WORKDIR /app
 
 COPY --from=builder /wheels /wheels
 COPY --from=builder /build/services/api/docker-healthcheck.py /app/docker-healthcheck.py
+COPY --from=builder /build/services/api/alembic /app/alembic
+COPY --from=builder /build/services/api/alembic.ini /app/alembic.ini
 RUN python -m pip install --no-index --find-links=/wheels "netops-copilot-api==0.1.0" && \
     rm -rf /wheels
 

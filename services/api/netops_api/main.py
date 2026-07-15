@@ -37,8 +37,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         logger.info("application_started", extra={"service": resolved_settings.service_name})
-        yield
-        logger.info("application_stopped", extra={"service": resolved_settings.service_name})
+        try:
+            yield
+        finally:
+            if dependencies.database is not None:
+                dependencies.database.dispose()
+            logger.info("application_stopped", extra={"service": resolved_settings.service_name})
 
     app = FastAPI(
         title="NetOps Copilot API",

@@ -20,6 +20,7 @@ services:
       NETOPS_RELOAD: "false"
       NETOPS_DOCS_ENABLED: ${NETOPS_DOCS_ENABLED:-true}
       NETOPS_LOG_LEVEL: ${NETOPS_LOG_LEVEL:-INFO}
+      NETOPS_DATABASE_URL: "postgresql+psycopg://netops_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in the root .env file}@postgres:5432/${POSTGRES_DB:-netops}"
       NETOPS_DEPENDENCIES__POSTGRES__HOST: postgres
       NETOPS_DEPENDENCIES__POSTGRES__PORT: "5432"
       NETOPS_DEPENDENCIES__REDIS__HOST: redis
@@ -31,6 +32,8 @@ services:
       NETOPS_DEPENDENCIES__KEYCLOAK__HOST: keycloak
       NETOPS_DEPENDENCIES__KEYCLOAK__PORT: "8080"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -45,6 +48,25 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:${NETOPS_PORT:-8000}:8000"
+
+  # The API runs only with the unprivileged application role. Alembic executes
+  # first using the PostgreSQL bootstrap owner so the runtime role and RLS
+  # policy exist on a clean volume before any request can reach the API.
+  migrate:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: netops-copilot-api:local
+    profiles: ["core"]
+    restart: "no"
+    entrypoint: ["alembic"]
+    command: ["-c", "/app/alembic.ini", "upgrade", "head"]
+    environment:
+      NETOPS_DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-netops}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}@postgres:5432/${POSTGRES_DB:-netops}"
+      NETOPS_APPLICATION_DB_PASSWORD: "${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in the root .env file}"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   web:
     build:

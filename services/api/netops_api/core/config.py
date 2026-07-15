@@ -134,6 +134,7 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_requests: int = Field(default=120, ge=1, le=10_000)
     rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
+    database_url: SecretStr | None = None
     dependencies: DependencyEndpoints = Field(default_factory=DependencyEndpoints)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
