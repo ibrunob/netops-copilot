@@ -56,6 +56,24 @@ require_completed_service() {
   fi
 }
 
+require_http_content() {
+  url=$1
+  expected=$2
+  attempt=0
+
+  while [ "$attempt" -lt 30 ]; do
+    if response=$(curl --fail --silent --show-error "$url" 2>/dev/null) && \
+      printf '%s' "$response" | grep -q "$expected"; then
+      return
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+
+  printf '%s\n' "Endpoint did not become ready: $url" >&2
+  exit 1
+}
+
 if [ ! -f "$ENV_FILE" ]; then
   printf '%s\n' "Missing .env. Run 'make env' first." >&2
   exit 1
@@ -79,11 +97,8 @@ require_completed_service minio-init
 api_port=${NETOPS_PORT:-$(setting_or_default NETOPS_PORT 8000)}
 web_port=${WEB_PORT:-$(setting_or_default WEB_PORT 3000)}
 
-curl --fail --silent --show-error --retry 12 --retry-delay 1 "http://127.0.0.1:${api_port}/healthz" \
-  | grep -q '"status":"ok"'
-curl --fail --silent --show-error --retry 12 --retry-delay 1 "http://127.0.0.1:${api_port}/readyz" \
-  | grep -q '"application":"ready"'
-curl --fail --silent --show-error --retry 12 --retry-delay 1 "http://127.0.0.1:${web_port}/" \
-  | grep -q 'NetOps Copilot'
+require_http_content "http://127.0.0.1:${api_port}/healthz" '"status":"ok"'
+require_http_content "http://127.0.0.1:${api_port}/readyz" '"application":"ready"'
+require_http_content "http://127.0.0.1:${web_port}/" 'NetOps Copilot'
 
 printf '%s\n' "Local core verification passed: all core services are healthy and MinIO initialization completed."
