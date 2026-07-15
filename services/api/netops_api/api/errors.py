@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, cast
 
 from fastapi import FastAPI, Request, status
@@ -44,11 +45,13 @@ class ApiError(Exception):
         code: str,
         message: str,
         details: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.status_code = status_code
         self.code = code
         self.message = message
         self.details = details
+        self.headers = headers
         super().__init__(message)
 
 
@@ -59,6 +62,7 @@ def error_response(
     message: str,
     request_id: str,
     details: dict[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     """Create a schema-conformant JSON error response."""
     body = ErrorEnvelope(
@@ -72,7 +76,7 @@ def error_response(
     return JSONResponse(
         status_code=status_code,
         content=body.model_dump(mode="json"),
-        headers={"X-Correlation-ID": request_id},
+        headers={"X-Correlation-ID": request_id, **(headers or {})},
     )
 
 
@@ -91,6 +95,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=exc.message,
             request_id=_request_id(request),
             details=exc.details,
+            headers=exc.headers,
         )
 
     @app.exception_handler(RequestValidationError)

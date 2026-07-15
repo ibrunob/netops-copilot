@@ -39,10 +39,11 @@ NEXT_TELEMETRY_DISABLED=1 npm --prefix apps/web run build
 
 CI executes the same commands, including the optimized production build.
 
-The current implementation includes a Next.js product shell (the OIDC boundary is not yet enforced), FastAPI health surface, local platform, immutable case-transition engine, Cisco IOS Phase 2 lifetime validator, and line-preserving secret redaction. Persistence, OIDC enforcement, triage workflows, retrieval, and AI analysis remain in their dependency-ordered build stages.
+The current implementation includes a Next.js product shell, a FastAPI OIDC resource-server boundary, local platform profiles, immutable case-transition engine, Cisco IOS Phase 2 lifetime validator, and line-preserving secret redaction. Persistence with tenant RLS, authenticated web UX, triage workflows, retrieval, and AI analysis remain in their dependency-ordered build stages.
 
 The repository now also has the target worker, connector-agent, generated-client,
 cross-service test, and ADR boundaries. They contain no fake runtime behavior:
-their README files describe the implementation gate for each package. Until M1
-introduces Alembic and tenant-safe persistence, `make migrate` and `make seed`
-fail explicitly rather than pretending to succeed.
+their README files describe the implementation gate for each package. M1 now
+includes locked Alembic/SQLAlchemy tooling, an isolated test database, local
+backup/restore commands, and migration scaffolding. `make seed` continues to
+fail until M1/M2 define an explicit tenant-safe persistence seed contract.

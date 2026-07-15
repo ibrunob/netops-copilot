@@ -5,10 +5,12 @@ NPM ?= npm
 COMPOSE ?= docker compose
 WEB_DIR := apps/web
 ENV_FILE := .env
+ALEMBIC_CONFIG := services/api/alembic.ini
+BACKUP_FILE ?= tmp/backups/netops-local.dump
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env check-tools check-locks bootstrap up up-events down compose-config verify-local secret-hygiene lint typecheck test migrate seed
+.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate db-backup db-restore seed
 
 help: ## Show the supported local development commands.
 
@@ -56,13 +58,17 @@ up-events: env ## Start the core platform plus Redpanda.
 
 	$(COMPOSE) --env-file $(ENV_FILE) --profile core --profile events up -d --build
 
+up-observability: env ## Start the optional local OTel, Tempo, Prometheus, and Grafana stack.
+
+	$(COMPOSE) --env-file $(ENV_FILE) --profile observability up -d
+
 down: env ## Stop local platform containers without deleting named volumes.
 
 	$(COMPOSE) --env-file $(ENV_FILE) --profile core --profile events down
 
 compose-config: env ## Render and validate the complete local Compose configuration.
 
-	$(COMPOSE) --env-file $(ENV_FILE) --profile core --profile events config --quiet
+	$(COMPOSE) --env-file $(ENV_FILE) --profile core --profile events --profile test --profile observability config --quiet
 
 verify-local: env check-locks ## Verify the live core API and web services without exposing secrets.
 
@@ -87,10 +93,64 @@ test: check-tools check-locks ## Run the API and web test suites from locked env
 	$(UV) run --frozen pytest
 	$(NPM) --prefix $(WEB_DIR) run test
 
-migrate: ## Fail until the M1 Alembic migration package is implemented.
+migrate: env check-tools check-locks ## Apply Alembic migrations to the isolated local application database.
 
-	@printf '%s\n' "Migrations are not available: Milestone 1 persistence/Alembic work has not been implemented." >&2
-	@exit 1
+	@set -a; . "./$(ENV_FILE)"; set +a; \
+		NETOPS_DATABASE_URL="postgresql+psycopg://$$POSTGRES_USER:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_PORT:-5432}/$$POSTGRES_DB"; \
+		export NETOPS_DATABASE_URL; \
+		$(UV) run --frozen alembic -c $(ALEMBIC_CONFIG) upgrade head
+
+test-db-up: env ## Start the isolated PostgreSQL cluster used by migration and integration tests.
+
+	$(COMPOSE) --env-file $(ENV_FILE) --profile test up -d postgres-test
+
+test-db-ready: test-db-up ## Wait until the isolated test PostgreSQL cluster accepts connections.
+
+	@set -a; . "./$(ENV_FILE)"; set +a; \
+		attempt=1; \
+		while [ "$$attempt" -le 30 ]; do \
+			if $(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test pg_isready -U "$${POSTGRES_TEST_USER:-netops_test}" -d "$${POSTGRES_TEST_DB:-netops_test}" >/dev/null 2>&1; then \
+				exit 0; \
+			fi; \
+			attempt=$$((attempt + 1)); \
+			sleep 1; \
+		done; \
+		printf '%s\n' "postgres-test did not become ready within 30 seconds." >&2; \
+		exit 1
+
+test-db-down: env ## Stop and remove only the test database container; keep its named volume.
+
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile test stop postgres-test >/dev/null 2>&1 || true
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile test rm -f postgres-test >/dev/null 2>&1 || true
+
+test-db-reset: env ## Destroy only the isolated test DB volume; requires CONFIRM_TEST_DB_RESET=1.
+
+	@[ "$$CONFIRM_TEST_DB_RESET" = "1" ] || { printf '%s\n' "Refusing to reset test data. Re-run with CONFIRM_TEST_DB_RESET=1." >&2; exit 2; }
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile test rm -s -f postgres-test >/dev/null 2>&1 || true
+	@set -a; . "./$(ENV_FILE)"; set +a; \
+		volume="$${COMPOSE_PROJECT_NAME:-netops-copilot}-postgres-test-data"; \
+		if docker volume inspect "$$volume" >/dev/null 2>&1; then docker volume rm "$$volume"; fi
+
+test-migrate: test-db-ready check-tools check-locks ## Apply Alembic migrations to the isolated test database.
+
+	@set -a; . "./$(ENV_FILE)"; set +a; \
+		NETOPS_DATABASE_URL="postgresql+psycopg://$${POSTGRES_TEST_USER:-netops_test}:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
+		export NETOPS_DATABASE_URL; \
+		$(UV) run --frozen alembic -c $(ALEMBIC_CONFIG) upgrade head
+
+db-backup: env ## Create a custom-format application DB backup at BACKUP_FILE (default: tmp/backups/netops-local.dump).
+
+	@mkdir -p "$(dir $(BACKUP_FILE))"
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_dump --format=custom --no-owner --no-privileges --username "$$POSTGRES_USER" "$$POSTGRES_DB"' > "$(BACKUP_FILE)"
+	@printf '%s\n' "Created local application database backup at $(BACKUP_FILE)."
+
+db-restore: env ## Restore BACKUP_FILE into local application DB; requires CONFIRM_LOCAL_RESTORE=1.
+
+	@[ "$$CONFIRM_LOCAL_RESTORE" = "1" ] || { printf '%s\n' "Refusing to overwrite local data. Re-run with CONFIRM_LOCAL_RESTORE=1." >&2; exit 2; }
+	@test -f "$(BACKUP_FILE)" || { printf '%s\n' "Backup file not found: $(BACKUP_FILE)" >&2; exit 2; }
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1 --command "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"'
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_restore --clean --if-exists --no-owner --no-privileges --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB"' < "$(BACKUP_FILE)"
+	@printf '%s\n' "Restored local application database from $(BACKUP_FILE)."
 
 seed: ## Fail until M1/M2 provide an explicit, tenant-safe development seed path.
 

@@ -13,10 +13,17 @@ from fastapi.responses import JSONResponse
 
 from netops_api.api.errors import register_exception_handlers
 from netops_api.api.health import router as health_router
+from netops_api.api.identity import router as identity_router
 from netops_api.core.config import Settings, get_settings
 from netops_api.core.dependencies import ApplicationDependencies, build_dependencies
 from netops_api.core.logging import configure_logging
-from netops_api.core.middleware import CorrelationIdMiddleware
+from netops_api.core.middleware import (
+    CorrelationIdMiddleware,
+    RateLimitMiddleware,
+    RequestTelemetryMiddleware,
+)
+from netops_api.core.observability import configure_opentelemetry
+from netops_api.core.sentry import configure_sentry
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +50,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.dependencies = dependencies
 
+    # Middleware is installed inside-out: correlation context remains outermost so
+    # throttled responses have a stable request ID and W3C trace context.
+    app.add_middleware(RequestTelemetryMiddleware)
+    app.add_middleware(RateLimitMiddleware, settings=resolved_settings)
     app.add_middleware(CorrelationIdMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router)
+    app.include_router(identity_router)
+    configure_opentelemetry(app, resolved_settings)
+    configure_sentry(resolved_settings)
 
     @app.get("/", include_in_schema=False)
     async def root() -> JSONResponse:

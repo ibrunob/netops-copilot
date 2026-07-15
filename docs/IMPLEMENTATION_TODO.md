@@ -6,7 +6,7 @@ This is the executable implementation sequence. Stages are intentionally gated: 
 
 - [x] Convert the repository to the target monorepo layout: `apps/web`, `services/api`, `services/worker`, `services/connector-agent`, `packages/api-client`, `infra`, `tests`, and `docs/adr`.
 - [x] Add a root `Makefile`/task runner with `bootstrap`, `up`, `test`, `lint`, `typecheck`, `migrate`, and `seed` commands. `migrate` and `seed` intentionally fail until their M1 persistence contracts exist.
-- [ ] Add `.env.example`, secret handling guidance, pre-commit checks, CODEOWNERS, CI, signed-image/SBOM workflow, and contribution instructions.
+- [x] Add `.env.example`, secret handling guidance, pre-commit checks, CODEOWNERS, CI, signed-image/SBOM workflow, and contribution instructions.
 - [x] Remove the static prototype after the web application shell is running; no browser-local case data was carried into the product.
 
 **Accept:** a clean clone starts the complete local stack with one command; CI validates every package and no credential is committed.

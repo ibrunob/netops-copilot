@@ -9,8 +9,17 @@ description = "NetOps Copilot domain API"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+  "alembic==1.14.1",
   "fastapi==0.115.8",
+  "opentelemetry-api==1.30.0",
+  "opentelemetry-exporter-otlp-proto-http==1.30.0",
+  "opentelemetry-instrumentation-fastapi==0.51b0",
+  "opentelemetry-sdk==1.30.0",
   "pydantic-settings==2.7.1",
+  "psycopg[binary]==3.2.4",
+  "PyJWT[crypto]==2.10.1",
+  "SQLAlchemy==2.0.37",
+  "sentry-sdk[fastapi]==2.20.0",
   "uvicorn[standard]==0.34.0",
 ]
 
