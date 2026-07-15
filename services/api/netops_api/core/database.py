@@ -11,6 +11,8 @@ from sqlalchemy import Connection, Engine, create_engine, text
 
 from netops_api.core.tenant_context import tenant_transaction
 
+READINESS_QUERY_TIMEOUT_MS = 1_000
+
 
 class TenantContextError(RuntimeError):
     """Raised when PostgreSQL did not retain the expected transaction tenant."""
@@ -45,6 +47,25 @@ class TenantDatabase:
                         "PostgreSQL tenant context was not bound to the verified organization."
                     )
                 yield scoped_connection
+
+    def check_readiness(self) -> None:
+        """Prove that the configured application database can execute a bounded query.
+
+        This intentionally bypasses the tenant transaction helper: a platform
+        readiness probe has no authenticated organization and must not invent a
+        tenant context. PostgreSQL applies the timeout only to this short-lived
+        transaction, so normal request queries retain their application-specific
+        execution limits.
+        """
+        with self.engine.connect() as connection:
+            with connection.begin():
+                connection.execute(
+                    text("SELECT set_config('statement_timeout', :timeout, true)"),
+                    {"timeout": f"{READINESS_QUERY_TIMEOUT_MS}ms"},
+                )
+                result = connection.scalar(text("SELECT 1"))
+        if result != 1:
+            raise TenantContextError("Application database returned an invalid readiness result.")
 
     def dispose(self) -> None:
         """Release pool resources when the application stops."""

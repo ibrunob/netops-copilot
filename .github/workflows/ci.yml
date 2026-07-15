@@ -100,6 +100,29 @@ jobs:
         if: always()
         run: docker compose --env-file .env --profile test down --volumes --remove-orphans
 
+  postgres-restore-drill:
+    name: PostgreSQL backup and restore drill
+    needs: dependency-locks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+      - name: Synchronize locked Python environment
+        run: uv sync --frozen --extra dev
+      - name: Restore a real isolated application archive
+        run: make db-restore-drill
+      - name: Collect PostgreSQL logs on failure
+        if: failure()
+        run: docker compose --env-file .env --profile test logs --no-color postgres-test
+      - name: Remove isolated PostgreSQL test resources
+        if: always()
+        run: docker compose --env-file .env --profile test down --volumes --remove-orphans
+
   web-quality:
     name: Web lint, types, and tests
     needs: dependency-locks
@@ -148,7 +171,7 @@ jobs:
 
   image-sbom:
     name: Build ${{ matrix.component }} image and generate SBOM
-    needs: [api-quality, tenant-rls, web-quality, pre-commit]
+    needs: [api-quality, tenant-rls, postgres-restore-drill, web-quality, pre-commit]
     runs-on: ubuntu-24.04
     permissions:
       contents: read

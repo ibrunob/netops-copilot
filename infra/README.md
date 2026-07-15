@@ -36,6 +36,11 @@ make up-observability
 make test-db-up
 ```
 
+`make up-observability` first starts the complete core profile, brings up the
+local observability services, then recreates only the API with its private OTLP
+HTTP endpoint. Normal `make up` leaves trace export disabled, so an absent
+collector cannot cause local exporter retry noise.
+
 The worker is not included yet: the directory intentionally has no executable
 worker process. It must join the `core` profile only when the Temporal worker
 and outbox publisher are real, observable processes; a placeholder container
@@ -141,9 +146,11 @@ CONFIRM_TEST_DB_RESET=1 make test-db-reset
 ## Local PostgreSQL backup and restore drill
 
 The local backup target exports only the application database in PostgreSQL's
-custom archive format. It excludes ownership and grant data, is written below
-the ignored `tmp/` directory by default, and does not back up MinIO artifacts,
-Temporal history, Keycloak, or Docker volumes.
+custom archive format. It excludes ownership and database-role definitions (so
+it contains no role passwords), but retains table grants required by the
+unprivileged `netops_app` runtime role. Archives are written below the ignored
+`tmp/` directory by default and do not back up MinIO artifacts, Temporal
+history, Keycloak, or Docker volumes.
 
 ```sh
 make db-backup
@@ -152,15 +159,29 @@ make db-backup BACKUP_FILE=tmp/backups/before-migration.dump
 
 To perform a restore drill, first stop callers that may write through the API.
 The restore target terminates remaining application-database sessions, drops
-objects present in the archive, and reloads the selected local database. It
+objects present in the archive, reloads the selected local database, then runs
+Alembic to bring an older archive forward to the current migration head. It
 cannot run without an explicit acknowledgement:
 
 ```sh
 CONFIRM_LOCAL_RESTORE=1 make db-restore BACKUP_FILE=tmp/backups/before-migration.dump
 ```
 
-Run `make migrate`, then execute an application smoke or integration test after
-the restore. This is a local developer drill, not a production backup design:
+For an automated proof that never addresses the core database, run:
+
+```sh
+make db-restore-drill
+```
+
+This target uses only the `postgres-test` container and refuses to run when its
+configured database name matches the core database name. It records the
+migrated revision, inserts a temporary application sentinel row, takes an
+archive, removes the row, restores the archive, and verifies both the same
+Alembic revision and sentinel are back. It then runs `make test-rls`, proving
+the restored grants, runtime `netops_app` role, and tenant RLS policies still
+work. The transient archive is deleted even on failure; the sentinel is removed
+before the RLS suite starts. This is a local developer drill, not a production
+backup design:
 production requires managed PostgreSQL PITR, separately versioned object-store
 backups, encryption controls, access audit, and regularly observed restores.
 
@@ -175,13 +196,30 @@ PostgreSQL, and the API waits for its successful completion plus PostgreSQL,
 Redis, MinIO, bucket bootstrap, Temporal, and Keycloak; the web container then
 waits for the API process health check.
 
-The current API `/healthz` check confirms only that the ASGI process is serving.
-It is deliberately **not** described as a database or dependency readiness
-check: Compose gates the API on the actual dependency service health checks.
-When application adapters add real dependency probes, those belong in the API
-readiness endpoint and must be documented separately. The web app receives the
-server-only `NETOPS_API_BASE_URL=http://api:8000`; no `NEXT_PUBLIC_*` API URL or
-credential is exposed to the browser.
+The API `/healthz` check confirms only that the ASGI process is serving. `/readyz`
+also opens an application-role database connection and executes `SELECT 1` in a
+transaction with a one-second local statement timeout. It returns a sanitized
+`503 persistence_unavailable` response when PostgreSQL is unavailable and never
+creates a tenant context for an unauthenticated platform probe. Compose still
+gates the API on its upstream service health checks. `make verify-local` asserts
+that this database probe succeeds. The web app receives the server-only
+`NETOPS_API_BASE_URL=http://api:8000`; no `NEXT_PUBLIC_*` API URL or credential
+is exposed to the browser.
+
+## Signed trace verification
+
+After `make up-observability`, create a temporary Keycloak user and obtain an
+authorization-code-with-PKCE access token as described in
+[`services/api/AUTHENTICATION.md`](../services/api/AUTHENTICATION.md). Keep that
+short-lived token only in your current shell, then run:
+
+```sh
+NETOPS_ACCESS_TOKEN="$ACCESS_TOKEN" make verify-signed-trace
+```
+
+The verifier calls the signed `/v1/auth/me` endpoint with a fresh W3C trace ID,
+checks that the API preserves it, and waits for that exact trace to appear in
+local Tempo. It never prints or saves the access token.
 
 ## Configuration for root `.env.example`
 

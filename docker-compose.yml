@@ -20,6 +20,9 @@ services:
       NETOPS_RELOAD: "false"
       NETOPS_DOCS_ENABLED: ${NETOPS_DOCS_ENABLED:-true}
       NETOPS_LOG_LEVEL: ${NETOPS_LOG_LEVEL:-INFO}
+      # `make up-observability` supplies the private collector endpoint and
+      # recreates this service. A normal `make up` leaves tracing export off.
+      NETOPS_OTEL_EXPORTER_OTLP_ENDPOINT: "${NETOPS_OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       NETOPS_DATABASE_URL: "postgresql+psycopg://netops_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in the root .env file}@postgres:5432/${POSTGRES_DB:-netops}"
       NETOPS_DEPENDENCIES__POSTGRES__HOST: postgres
       NETOPS_DEPENDENCIES__POSTGRES__PORT: "5432"

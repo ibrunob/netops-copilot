@@ -10,7 +10,7 @@ BACKUP_FILE ?= tmp/backups/netops-local.dump
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore seed
+.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local verify-signed-trace secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore db-restore-drill seed
 
 help: ## Show the supported local development commands.
 
@@ -58,9 +58,10 @@ up-events: env ## Start the core platform plus Redpanda.
 
 	$(COMPOSE) --env-file $(ENV_FILE) --profile core --profile events up -d --build
 
-up-observability: env ## Start the optional local OTel, Tempo, Prometheus, and Grafana stack.
+up-observability: up ## Start the core platform plus local OTel, Tempo, Prometheus, and Grafana with API trace export.
 
 	$(COMPOSE) --env-file $(ENV_FILE) --profile observability up -d
+	NETOPS_OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/traces $(COMPOSE) --env-file $(ENV_FILE) --profile core up -d --build --force-recreate api
 
 down: env ## Stop local platform containers without deleting named volumes.
 
@@ -73,6 +74,10 @@ compose-config: env ## Render and validate the complete local Compose configurat
 verify-local: env check-locks ## Verify the live core API and web services without exposing secrets.
 
 	sh scripts/verify-local-stack.sh
+
+verify-signed-trace: env ## Verify a temporary signed Keycloak token is traced through the API into local Tempo.
+
+	sh scripts/verify-signed-trace.sh
 
 secret-hygiene: ## Scan source files for tracked dotenv files and likely literal credentials.
 
@@ -151,16 +156,45 @@ test-rls: test-migrate check-tools check-locks ## Run real PostgreSQL tenant-iso
 db-backup: env ## Create a custom-format application DB backup at BACKUP_FILE (default: tmp/backups/netops-local.dump).
 
 	@mkdir -p "$(dir $(BACKUP_FILE))"
-	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_dump --format=custom --no-owner --no-privileges --username "$$POSTGRES_USER" "$$POSTGRES_DB"' > "$(BACKUP_FILE)"
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_dump --format=custom --no-owner --username "$$POSTGRES_USER" "$$POSTGRES_DB"' > "$(BACKUP_FILE)"
 	@printf '%s\n' "Created local application database backup at $(BACKUP_FILE)."
 
-db-restore: env ## Restore BACKUP_FILE into local application DB; requires CONFIRM_LOCAL_RESTORE=1.
+db-restore: env check-tools check-locks ## Restore and migrate BACKUP_FILE into local application DB; requires CONFIRM_LOCAL_RESTORE=1.
 
 	@[ "$$CONFIRM_LOCAL_RESTORE" = "1" ] || { printf '%s\n' "Refusing to overwrite local data. Re-run with CONFIRM_LOCAL_RESTORE=1." >&2; exit 2; }
 	@test -f "$(BACKUP_FILE)" || { printf '%s\n' "Backup file not found: $(BACKUP_FILE)" >&2; exit 2; }
 	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1 --command "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();"'
-	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_restore --clean --if-exists --no-owner --no-privileges --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB"' < "$(BACKUP_FILE)"
-	@printf '%s\n' "Restored local application database from $(BACKUP_FILE)."
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_restore --clean --if-exists --no-owner --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB"' < "$(BACKUP_FILE)"
+	@$(MAKE) migrate
+	@printf '%s\n' "Restored and migrated local application database from $(BACKUP_FILE)."
+
+db-restore-drill: test-migrate ## Prove an isolated backup restores a migrated, RLS-enforced application database.
+
+	@set -eu; \
+		set -a; . "./$(ENV_FILE)"; set +a; \
+		core_database="$${POSTGRES_DB:-netops}"; \
+		test_database="$${POSTGRES_TEST_DB:-netops_test}"; \
+		[ "$$test_database" != "$$core_database" ] || { printf '%s\n' "Refusing restore drill: POSTGRES_TEST_DB must differ from POSTGRES_DB." >&2; exit 2; }; \
+		backup_file="$$(mktemp "$${TMPDIR:-/tmp}/netops-restore-drill.XXXXXX")"; \
+		cleanup() { \
+			rm -f "$$backup_file"; \
+			$(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1 --command "DELETE FROM organizations WHERE slug = '\''restore-drill-sentinel'\''"' >/dev/null 2>&1 || true; \
+		}; \
+		trap cleanup EXIT HUP INT TERM; \
+		$(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1 --command "DELETE FROM organizations WHERE slug = '\''restore-drill-sentinel'\''; INSERT INTO organizations (slug, display_name) VALUES ('\''restore-drill-sentinel'\'', '\''Restore drill sentinel'\'');"'; \
+		revision_before="$$($(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --tuples-only --no-align --set ON_ERROR_STOP=1 --command "SELECT version_num FROM alembic_version"')"; \
+		[ -n "$$revision_before" ] || { printf '%s\n' "Restore drill could not read the pre-backup Alembic revision." >&2; exit 1; }; \
+		$(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_dump --format=custom --no-owner --username "$$POSTGRES_USER" "$$POSTGRES_DB"' > "$$backup_file"; \
+		$(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1 --command "DELETE FROM organizations WHERE slug = '\''restore-drill-sentinel'\''"'; \
+		$(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec pg_restore --clean --if-exists --no-owner --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB"' < "$$backup_file"; \
+		revision_after="$$($(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --tuples-only --no-align --set ON_ERROR_STOP=1 --command "SELECT version_num FROM alembic_version"')"; \
+		restored_sentinel="$$($(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --tuples-only --no-align --set ON_ERROR_STOP=1 --command "SELECT count(*) FROM organizations WHERE slug = '\''restore-drill-sentinel'\''"')"; \
+		[ "$$revision_after" = "$$revision_before" ] || { printf '%s\n' "Restore drill did not preserve the Alembic revision." >&2; exit 1; }; \
+		[ "$$restored_sentinel" = "1" ] || { printf '%s\n' "Restore drill did not recover the application sentinel row." >&2; exit 1; }; \
+		$(COMPOSE) --env-file $(ENV_FILE) --profile test exec -T postgres-test sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1 --command "DELETE FROM organizations WHERE slug = '\''restore-drill-sentinel'\''"'; \
+		printf '%s\n' "Restore drill recovered Alembic revision $$revision_after and application data from an isolated archive."
+	@$(MAKE) test-rls
+	@printf '%s\n' "Restore drill also passed the isolated runtime-role and RLS acceptance checks."
 
 seed: ## Fail until M1/M2 provide an explicit, tenant-safe development seed path.
 

@@ -98,7 +98,7 @@ api_port=${NETOPS_PORT:-$(setting_or_default NETOPS_PORT 8000)}
 web_port=${WEB_PORT:-$(setting_or_default WEB_PORT 3000)}
 
 require_http_content "http://127.0.0.1:${api_port}/healthz" '"status":"ok"'
-require_http_content "http://127.0.0.1:${api_port}/readyz" '"application":"ready"'
+require_http_content "http://127.0.0.1:${api_port}/readyz" '"database":"ready"'
 require_http_content "http://127.0.0.1:${web_port}/" 'NetOps Copilot'
 
 printf '%s\n' "Local core verification passed: all core services are healthy and MinIO initialization completed."
