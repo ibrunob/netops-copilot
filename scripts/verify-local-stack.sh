@@ -25,12 +25,19 @@ require_healthy_service() {
     exit 1
   fi
 
-  state=$(docker inspect --format '{{.State.Status}}' "$container_id")
-  health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id")
-  if [ "$state" != "running" ] || [ "$health" != "healthy" ]; then
-    printf '%s\n' "Core service is not healthy: $service (state=$state, health=$health)" >&2
-    exit 1
-  fi
+  attempt=0
+  while [ "$attempt" -lt 30 ]; do
+    state=$(docker inspect --format '{{.State.Status}}' "$container_id")
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id")
+    if [ "$state" = "running" ] && [ "$health" = "healthy" ]; then
+      return
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+
+  printf '%s\n' "Core service is not healthy: $service (state=$state, health=$health)" >&2
+  exit 1
 }
 
 require_completed_service() {
