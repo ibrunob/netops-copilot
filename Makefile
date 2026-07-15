@@ -10,7 +10,7 @@ BACKUP_FILE ?= tmp/backups/netops-local.dump
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local verify-signed-trace secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore db-restore-drill seed
+.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local verify-signed-trace verify-pkce-trace secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore db-restore-drill seed
 
 help: ## Show the supported local development commands.
 
@@ -79,13 +79,17 @@ verify-signed-trace: env ## Verify a temporary signed Keycloak token is traced t
 
 	sh scripts/verify-signed-trace.sh
 
+verify-pkce-trace: env ## Interactively obtain a local PKCE token and verify its API-to-Tempo trace without printing the token.
+
+	python3 scripts/verify-pkce-trace.py
+
 secret-hygiene: ## Scan source files for tracked dotenv files and likely literal credentials.
 
 	sh scripts/check-secret-hygiene.sh
 
 lint: check-tools check-locks ## Run Python and web lint checks from locked environments.
 
-	$(UV) run --frozen ruff check services/api
+	$(UV) run --frozen ruff check services/api services/worker
 	$(NPM) --prefix $(WEB_DIR) run lint
 
 typecheck: check-tools check-locks ## Run Python and TypeScript type checks from locked environments.

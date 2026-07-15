@@ -56,6 +56,13 @@ curl --fail-with-body http://127.0.0.1:8000/v1/auth/me \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
+For the complete local signed-trace acceptance check, `make verify-pkce-trace`
+starts a loopback-only PKCE callback at `127.0.0.1:8765`, prints the Keycloak
+authorization URL, and exchanges the returned code only in memory before
+calling `/v1/auth/me` and checking Tempo. It never asks for, stores, or prints
+the user's password or access token. The imported realm permits only that exact
+loopback callback URI.
+
 If the development realm was imported before this change, Keycloak will not
 re-import it into the existing database. Recreate the local realm or apply the
 same audience and user-attribute mappers in the admin console; never erase a

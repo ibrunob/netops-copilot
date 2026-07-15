@@ -71,7 +71,7 @@ jobs:
       - name: Synchronize locked Python environment
         run: uv sync --frozen --extra dev
       - name: Lint
-        run: uv run --frozen ruff check services/api
+        run: uv run --frozen ruff check services/api services/worker
       - name: Type check
         run: uv run --frozen mypy
       - name: Test
@@ -182,6 +182,9 @@ jobs:
           - component: api
             dockerfile: services/api/Dockerfile
             image: netops-copilot-api
+          - component: worker
+            dockerfile: services/worker/Dockerfile
+            image: netops-copilot-worker
           - component: web
             dockerfile: apps/web/Dockerfile
             image: netops-copilot-web

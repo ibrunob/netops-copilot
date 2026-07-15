@@ -52,6 +52,30 @@ services:
     ports:
       - "127.0.0.1:${NETOPS_PORT:-8000}:8000"
 
+  worker:
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+    image: netops-copilot-worker:local
+    profiles: ["core"]
+    <<: *local-restart
+    stop_grace_period: 35s
+    environment:
+      NETOPS_WORKER_ENVIRONMENT: ${NETOPS_ENVIRONMENT:-local}
+      NETOPS_WORKER_SERVICE_NAME: netops-worker
+      NETOPS_WORKER_SERVICE_VERSION: ${NETOPS_API_VERSION:-0.1.0}
+      NETOPS_WORKER_HEALTH_HOST: 0.0.0.0
+      NETOPS_WORKER_HEALTH_PORT: "8081"
+      NETOPS_WORKER_TEMPORAL_ADDRESS: temporal:7233
+      NETOPS_WORKER_TEMPORAL_NAMESPACE: ${NETOPS_TEMPORAL_NAMESPACE:-default}
+      NETOPS_WORKER_TASK_QUEUE: ${NETOPS_TEMPORAL_TASK_QUEUE:-netops-platform}
+      NETOPS_WORKER_GRACEFUL_SHUTDOWN_SECONDS: "30"
+      NETOPS_WORKER_OTEL_TRACES_ENABLED: ${NETOPS_OTEL_TRACES_ENABLED:-true}
+      NETOPS_WORKER_OTEL_EXPORTER_OTLP_ENDPOINT: "${NETOPS_OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+    depends_on:
+      temporal:
+        condition: service_healthy
+
   # The API runs only with the unprivileged application role. Alembic executes
   # first using the PostgreSQL bootstrap owner so the runtime role and RLS
   # policy exist on a clean volume before any request can reach the API.

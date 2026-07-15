@@ -17,17 +17,17 @@ repos:
 
   - repo: local
     hooks:
-      - id: api-ruff-format
-        name: api ruff format check
-        entry: uv run --frozen ruff format --check services/api
+      - id: python-ruff-format
+        name: python ruff format check
+        entry: uv run --frozen ruff format --check services/api services/worker
         language: system
-        files: ^services/api/.*\.py$
+        files: ^services/(api|worker)/.*\.py$
         pass_filenames: false
-      - id: api-ruff-lint
-        name: api ruff lint
-        entry: uv run --frozen ruff check services/api
+      - id: python-ruff-lint
+        name: python ruff lint
+        entry: uv run --frozen ruff check services/api services/worker
         language: system
-        files: ^services/api/.*\.py$
+        files: ^services/(api|worker)/.*\.py$
         pass_filenames: false
       - id: web-check
         name: web lint, types, and source tests

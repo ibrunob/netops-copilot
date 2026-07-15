@@ -1,9 +1,9 @@
 # Local infrastructure
 
 `docker-compose.yml` runs the current local application boundary alongside its
-development dependencies: the FastAPI domain API and the Next.js web product
-shell. The future worker and connector agent are not part of this Compose stack
-yet.
+development dependencies: the FastAPI domain API, the Next.js web product shell,
+and the Temporal worker runtime. The connector agent is not part of this Compose
+stack yet.
 
 ## Start and stop
 
@@ -16,7 +16,8 @@ docker compose --profile core down
 ```
 
 The `core` profile starts PostgreSQL 16 with pgvector, Redis, MinIO, Temporal
-and Temporal UI, a development-only Keycloak realm, the API, and the web app.
+and Temporal UI, a development-only Keycloak realm, the API, the worker, and the
+web app.
 The API is available at `http://127.0.0.1:8000` and the web app at
 `http://127.0.0.1:3000`. The optional `events` profile starts Redpanda for
 testing the transactional-outbox consumer path. Profiles are deliberately
@@ -41,10 +42,11 @@ local observability services, then recreates only the API with its private OTLP
 HTTP endpoint. Normal `make up` leaves trace export disabled, so an absent
 collector cannot cause local exporter retry noise.
 
-The worker is not included yet: the directory intentionally has no executable
-worker process. It must join the `core` profile only when the Temporal worker
-and outbox publisher are real, observable processes; a placeholder container
-would conceal that missing implementation.
+The worker is an observable, isolated Temporal process. Its `/readyz` health
+probe remains unavailable until it has connected to Temporal and completed a
+bounded platform workflow/activity probe on its own task queue. The platform
+probe has no business side effects; triage workflows and the outbox publisher
+remain deferred until their persistence and idempotency contracts exist.
 
 ## Required local secrets
 
@@ -188,13 +190,18 @@ backups, encryption controls, access audit, and regularly observed restores.
 ## Readiness strategy
 
 PostgreSQL, Redis, MinIO, Temporal, Temporal UI, Keycloak, Redpanda, Prometheus,
-Grafana, the API, and the web application each declare health checks. Dependents wait for the
+Grafana, the API, the worker, and the web application each declare health checks. Dependents wait for the
 upstream health check instead of relying on container start order: Temporal and
 Keycloak wait for PostgreSQL, Temporal UI waits for Temporal, and the one-shot
 MinIO bootstrap waits for MinIO. The one-shot migration service waits for
 PostgreSQL, and the API waits for its successful completion plus PostgreSQL,
 Redis, MinIO, bucket bootstrap, Temporal, and Keycloak; the web container then
 waits for the API process health check.
+
+The worker waits for Temporal health and receives a 35-second Compose stop grace
+period. Its container health check calls `/readyz`, which only becomes healthy
+after the real Temporal platform probe completes; a live process with a broken
+Temporal connection cannot be reported ready.
 
 The API `/healthz` check confirms only that the ASGI process is serving. `/readyz`
 also opens an application-role database connection and executes `SELECT 1` in a
@@ -220,6 +227,20 @@ NETOPS_ACCESS_TOKEN="$ACCESS_TOKEN" make verify-signed-trace
 The verifier calls the signed `/v1/auth/me` endpoint with a fresh W3C trace ID,
 checks that the API preserves it, and waits for that exact trace to appear in
 local Tempo. It never prints or saves the access token.
+
+For a complete manual test without separately extracting a token, use the
+loopback PKCE verifier instead. It prints a local Keycloak authorization URL,
+receives the one-time browser callback on `127.0.0.1:8765`, keeps the token in
+memory only, then performs the same signed API-to-Tempo check:
+
+```sh
+make verify-pkce-trace
+```
+
+The development realm permits only this exact loopback callback URL; it does
+not add a broad redirect rule. As with the rest of the local realm import, add
+the redirect URI in the Keycloak admin console if an existing local realm was
+created before this change.
 
 ## Configuration for root `.env.example`
 

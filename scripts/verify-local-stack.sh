@@ -89,7 +89,7 @@ cd "$ROOT_DIR"
 make check-locks
 docker compose --env-file "$ENV_FILE" --profile core config --quiet
 
-for service in api web postgres redis minio temporal temporal-ui keycloak; do
+for service in api worker web postgres redis minio temporal temporal-ui keycloak; do
   require_healthy_service "$service"
 done
 require_completed_service minio-init

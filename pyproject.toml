@@ -20,6 +20,7 @@ dependencies = [
   "PyJWT[crypto]==2.10.1",
   "SQLAlchemy==2.0.37",
   "sentry-sdk[fastapi]==2.20.0",
+  "temporalio==1.22.0",
   "uvicorn[standard]==0.34.0",
 ]
 
@@ -34,18 +35,19 @@ dev = [
 
 [project.scripts]
 netops-api = "netops_api.main:run"
+netops-worker = "netops_worker.main:run"
 
 [tool.setuptools]
-package-dir = {"" = "services/api"}
+package-dir = {}
 
 [tool.setuptools.packages.find]
-where = ["services/api"]
-include = ["netops_api*"]
+where = ["services/api", "services/worker"]
+include = ["netops_api*", "netops_worker*"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-testpaths = ["services/api/tests"]
-pythonpath = ["services/api"]
+testpaths = ["services/api/tests", "services/worker/tests"]
+pythonpath = ["services/api", "services/worker"]
 addopts = "-ra --strict-markers"
 markers = [
   "integration: requires the isolated PostgreSQL test service and explicit test DSNs",
@@ -54,7 +56,7 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["services/api"]
+src = ["services/api", "services/worker"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
@@ -64,7 +66,7 @@ known-first-party = ["netops_api"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["services/api/netops_api"]
+files = ["services/api/netops_api", "services/worker/netops_worker"]
 strict = true
 warn_unused_configs = true
 pretty = true

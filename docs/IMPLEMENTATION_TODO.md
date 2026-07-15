@@ -16,14 +16,14 @@ This is the executable implementation sequence. Stages are intentionally gated: 
 **Depends on:** Milestone 0.
 **Parallel:** API persistence and web shell can proceed after the contracts below exist.
 
-- [ ] Compose profiles: core (web, API, worker, PostgreSQL/pgvector, Redis, MinIO, Temporal, Keycloak), events (Redpanda), and observability (OTel, Grafana stack).
-- [ ] Provision PostgreSQL migrations, extensions, backup/restore documentation, and scoped test databases.
-- [ ] Create OIDC development realm and API JWT verification; define roles and organization/asset scopes.
-- [ ] Enforce PostgreSQL RLS for every organization-owned table; establish request/transaction tenant context.
-- [ ] Add structured logs, correlation IDs, OpenTelemetry traces, health/readiness endpoints, Sentry redaction, and baseline rate limits.
-- [ ] Define artifact classification, encryption, retention, deletion, access audit, and model-data handling policies.
+- [x] Compose profiles: core (web, API, worker, PostgreSQL/pgvector, Redis, MinIO, Temporal, Keycloak), events (Redpanda), and observability (OTel, Grafana stack).
+- [x] Provision PostgreSQL migrations, extensions, backup/restore documentation, and scoped test databases.
+- [x] Create OIDC development realm and API JWT verification; define roles and organization/asset scopes.
+- [x] Enforce PostgreSQL RLS for every organization-owned table; establish request/transaction tenant context.
+- [x] Add structured logs, correlation IDs, OpenTelemetry traces, health/readiness endpoints, Sentry redaction, and baseline rate limits.
+- [x] Define artifact classification, encryption, retention, deletion, access audit, and model-data handling policies.
 
-**Accept:** cross-organization reads fail at database level; a trace follows a signed-in test user to the health endpoint; restore drill works against local backups.
+**Accept:** cross-organization reads fail at database level; a trace follows a signed-in test user through `/v1/auth/me` while `/healthz` remains unauthenticated for orchestrators; restore drill works against local backups.
 
 ## Milestone 2 — Case spine and API contract
 
