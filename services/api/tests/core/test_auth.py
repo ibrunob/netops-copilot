@@ -231,9 +231,7 @@ def test_identity_endpoint_returns_only_verified_identity_claims(
     assert database.organization_ids == [ORGANIZATION_ID]
 
 
-def test_identity_endpoint_hides_invalid_token_details(
-    app: FastAPI, client: TestClient
-) -> None:
+def test_identity_endpoint_hides_invalid_token_details(app: FastAPI, client: TestClient) -> None:
     _replace_token_verifier(app, StubTokenVerifier(AuthenticationError()))
 
     response = client.get("/v1/auth/me", headers={"Authorization": "Bearer access-token"})

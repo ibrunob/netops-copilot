@@ -105,8 +105,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         # Deliberately omit rejected values: API inputs can contain configurations or secrets.
         details = {
             "issues": [
-                {"location": list(error["loc"]), "type": error["type"]}
-                for error in exc.errors()
+                {"location": list(error["loc"]), "type": error["type"]} for error in exc.errors()
             ]
         }
         return error_response(
@@ -118,9 +117,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_error_handler(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         message = (
             exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
         )

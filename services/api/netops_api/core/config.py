@@ -41,12 +41,8 @@ class DependencyEndpoints(BaseModel):
     postgres: ServiceEndpoint = Field(
         default_factory=lambda: ServiceEndpoint(host="postgres", port=5432)
     )
-    redis: ServiceEndpoint = Field(
-        default_factory=lambda: ServiceEndpoint(host="redis", port=6379)
-    )
-    minio: ServiceEndpoint = Field(
-        default_factory=lambda: ServiceEndpoint(host="minio", port=9000)
-    )
+    redis: ServiceEndpoint = Field(default_factory=lambda: ServiceEndpoint(host="redis", port=6379))
+    minio: ServiceEndpoint = Field(default_factory=lambda: ServiceEndpoint(host="minio", port=9000))
     temporal: ServiceEndpoint = Field(
         default_factory=lambda: ServiceEndpoint(host="temporal", port=7233)
     )
@@ -68,9 +64,7 @@ class AuthSettings(BaseModel):
 
     issuer: str = "http://localhost:8080/realms/netops-dev"
     audience: str = "netops-api"
-    jwks_url: str = (
-        "http://keycloak:8080/realms/netops-dev/protocol/openid-connect/certs"
-    )
+    jwks_url: str = "http://keycloak:8080/realms/netops-dev/protocol/openid-connect/certs"
     allowed_algorithms: tuple[str, ...] = ("RS256",)
     clock_skew_seconds: int = Field(default=30, ge=0, le=300)
     organization_claim: str = "organization_id"

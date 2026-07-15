@@ -73,9 +73,7 @@ _bearer_scheme = HTTPBearer(
 
 async def get_current_principal(
     dependencies: Annotated[ApplicationDependencies, Depends(get_dependencies)],
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Security(_bearer_scheme)
-    ],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)],
 ) -> AuthenticatedPrincipal:
     """Verify a bearer access token and return its tenant-bound principal."""
     if credentials is None or not credentials.credentials:

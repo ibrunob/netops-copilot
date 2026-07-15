@@ -126,12 +126,18 @@ def test_tenant_rls_denies_cross_organization_access_and_connection_leaks(
         # on INSERT through the policy's WITH CHECK predicate.
         with database.tenant_connection(ORGANIZATION_B) as connection:
             assert connection.scalars(text("SELECT id FROM assets")).all() == []
-            assert connection.execute(
-                text("UPDATE assets SET name = 'forged' WHERE id = :id"), {"id": ASSET_A}
-            ).rowcount == 0
-            assert connection.execute(
-                text("DELETE FROM assets WHERE id = :id"), {"id": ASSET_A}
-            ).rowcount == 0
+            assert (
+                connection.execute(
+                    text("UPDATE assets SET name = 'forged' WHERE id = :id"), {"id": ASSET_A}
+                ).rowcount
+                == 0
+            )
+            assert (
+                connection.execute(
+                    text("DELETE FROM assets WHERE id = :id"), {"id": ASSET_A}
+                ).rowcount
+                == 0
+            )
             with pytest.raises(DBAPIError), connection.begin_nested():
                 connection.execute(
                     text(

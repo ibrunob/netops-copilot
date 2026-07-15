@@ -241,9 +241,7 @@ def _optional_string(claims: Mapping[str, object], claim_name: str) -> str | Non
     return value
 
 
-def _uuid_claim(
-    claims: Mapping[str, object], claim_name: str, *, required: bool
-) -> UUID | None:
+def _uuid_claim(claims: Mapping[str, object], claim_name: str, *, required: bool) -> UUID | None:
     value = claims.get(claim_name)
     if value is None and not required:
         return None

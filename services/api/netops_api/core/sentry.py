@@ -49,9 +49,7 @@ def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] 
         values = exception.get("values")
         if isinstance(values, list):
             exception["values"] = [
-                {"type": item.get("type", "Exception")}
-                for item in values
-                if isinstance(item, dict)
+                {"type": item.get("type", "Exception")} for item in values if isinstance(item, dict)
             ]
     request = sanitized.get("request")
     if isinstance(request, dict):

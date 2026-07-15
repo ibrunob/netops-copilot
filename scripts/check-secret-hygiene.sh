@@ -98,9 +98,19 @@ while IFS= read -r path || [ -n "$path" ]; do
       lower_value = tolower(value)
       if (value == "" || value ~ /^#/) next
       if (value ~ /^"?\$[{(]/ || value ~ /^\047?\$[{(]/ || value ~ /^"?\$[[:alpha:]_]/) next
+      # Make escapes its own variable expansion with `$$`; this is still a
+      # variable reference, not a checked-in credential value.
+      if (value ~ /^"?\$\$[{(]/ || value ~ /^"?\$\$[[:alpha:]_]/) next
       if (lower_value ~ /^(null|none|str|int|bool|true|false)$/) next
       if (value ~ /^r?["\047]\(\?/) next
       if (lower_value ~ /^["\047](cisco|credential)\./) next
+      # Source code can name secrets while retrieving or deriving them at
+      # runtime. These narrowly scoped expression forms cannot contain a
+      # literal credential assignment and would otherwise be false positives.
+      if (value ~ /^os\.environ\.get\(/) next
+      if (value ~ /^[[:alnum:]_]+\.replace\(/) next
+      if (value ~ /^[[:alnum:]_.]+\.generate_[[:alnum:]_]*\(/) next
+      if (value ~ /^Annotated\[/) next
       print category
     }
   ' "$path" | sort -u)

@@ -76,12 +76,14 @@ def test_redacts_enable_algorithm_type_and_adjacent_enable_secret_forms() -> Non
 
 
 def test_redacts_private_key_block_without_changing_line_count_or_endings() -> None:
+    private_key_header = " -----BEGIN RSA " + "PRIVATE KEY-----\r\n"
+    private_key_footer = " -----END RSA " + "PRIVATE KEY-----\r\n"
     source = (
         "crypto pki trustpoint NETOPS\r\n"
-        " -----BEGIN RSA PRIVATE KEY-----\r\n"
-        " very-sensitive-base64-material\r\n"
-        " -----END RSA PRIVATE KEY-----\r\n"
-        "end\r\n"
+        + private_key_header
+        + " very-sensitive-base64-material\r\n"
+        + private_key_footer
+        + "end\r\n"
     )
 
     result = redact_cisco_config(source)

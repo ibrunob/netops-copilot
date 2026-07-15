@@ -117,8 +117,7 @@ def test_phase2_lifetime_does_not_infer_platform_default_when_not_declared() -> 
 
 def test_malformed_lifetime_is_warned_and_never_used_as_evidence() -> None:
     config = parse_cisco_ios_config(
-        "crypto map WAN-MAP 10 ipsec-isakmp\n"
-        " set security-association lifetime seconds never\n"
+        "crypto map WAN-MAP 10 ipsec-isakmp\n set security-association lifetime seconds never\n"
     )
 
     assert config.warnings[0].line_number == 2
