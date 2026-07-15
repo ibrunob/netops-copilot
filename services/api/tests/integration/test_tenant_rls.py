@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 
@@ -26,7 +26,28 @@ ORGANIZATION_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667788")
 ORGANIZATION_B = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667789")
 ASSET_A = UUID("018f0b3c-5e8a-7f0a-8ac4-33445566778a")
 ASSET_B = UUID("018f0b3c-5e8a-7f0a-8ac4-33445566778b")
+CASE_A = UUID("018f0b3c-5e8a-7f0a-8ac4-33445566778c")
+CASE_B = UUID("018f0b3c-5e8a-7f0a-8ac4-33445566778d")
+INPUT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-33445566778e")
+TRANSITION_A = UUID("018f0b3c-5e8a-7f0a-8ac4-33445566778f")
+INVALID_TRANSITION = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667790")
+CASE_CREATED_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667791")
+CASE_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667792")
+OUTBOX_CREATED_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667793")
+OUTBOX_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667794")
+ACTOR_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667795")
+CORRELATION_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667796")
+AUDIT_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667797")
 FORCED_OWNER_ROLE = "netops_rls_force_owner"
+CASE_SPINE_TABLES = (
+    "cases",
+    "case_inputs",
+    "case_events",
+    "case_transitions",
+    "outbox_events",
+    "consumer_inbox",
+    "audit_events",
+)
 
 
 def _required_url(name: str) -> str:
@@ -63,12 +84,22 @@ def _owner_identifier(owner_engine: Engine) -> str:
     return username
 
 
+def _clear_case_spine(connection: Connection) -> None:
+    """Clear isolated test fixtures without weakening append-only triggers."""
+    connection.execute(
+        text(
+            "TRUNCATE TABLE consumer_inbox, outbox_events, case_events, case_transitions, "
+            "case_inputs, cases, audit_events"
+        )
+    )
+
+
 @contextmanager
 def _prepared_tenants(owner_engine: Engine) -> Iterator[None]:
     """Insert independent tenant fixtures and always restore test-table ownership."""
     owner_identifier = _owner_identifier(owner_engine)
     with owner_engine.begin() as connection:
-        connection.execute(text("DELETE FROM audit_events"))
+        _clear_case_spine(connection)
         connection.execute(text("DELETE FROM assets"))
         connection.execute(text("DELETE FROM organization_settings"))
         connection.execute(text("DELETE FROM memberships"))
@@ -97,7 +128,7 @@ def _prepared_tenants(owner_engine: Engine) -> Iterator[None]:
         # assertion fails so later migration tests retain their normal owner.
         with owner_engine.begin() as connection:
             connection.execute(text(f"ALTER TABLE assets OWNER TO {owner_identifier}"))
-            connection.execute(text("DELETE FROM audit_events"))
+            _clear_case_spine(connection)
             connection.execute(text("DELETE FROM assets"))
             connection.execute(text("DELETE FROM organization_settings"))
             connection.execute(text("DELETE FROM memberships"))
@@ -173,3 +204,257 @@ def test_tenant_rls_denies_cross_organization_access_and_connection_leaks(
             connection.execute(text(f"ALTER TABLE assets OWNER TO {FORCED_OWNER_ROLE}"))
             connection.execute(text(f"SET LOCAL ROLE {FORCED_OWNER_ROLE}"))
             assert connection.scalar(text("SELECT count(*) FROM assets")) == 0
+
+
+def test_case_spine_schema_enforces_rls_and_append_only_history(
+    owner_engine: Engine, application_engine: Engine
+) -> None:
+    """Exercise the M2 schema through the same isolated runtime role as production."""
+    database = TenantDatabase(application_engine)
+
+    with owner_engine.begin() as connection:
+        relation_rows = connection.execute(
+            text(
+                "SELECT relname, relrowsecurity, relforcerowsecurity "
+                "FROM pg_class JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace "
+                "WHERE nspname = 'public' AND relname IN "
+                "('cases', 'case_inputs', 'case_events', 'case_transitions', "
+                "'outbox_events', 'consumer_inbox')"
+            )
+        ).all()
+        policies = set(
+            connection.scalars(
+                text(
+                    "SELECT policyname FROM pg_policies "
+                    "WHERE schemaname = 'public' AND tablename IN "
+                    "('cases', 'case_inputs', 'case_events', 'case_transitions', "
+                    "'outbox_events', 'consumer_inbox')"
+                )
+            ).all()
+        )
+        revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
+
+    assert revision == "20260715_02"
+    assert {row.relname for row in relation_rows} == set(CASE_SPINE_TABLES) - {"audit_events"}
+    assert all(row.relrowsecurity and row.relforcerowsecurity for row in relation_rows)
+    assert policies == {
+        "tenant_isolation_cases",
+        "tenant_isolation_case_inputs",
+        "tenant_isolation_case_events",
+        "tenant_isolation_case_transitions",
+        "tenant_isolation_outbox_events",
+        "tenant_isolation_consumer_inbox",
+    }
+
+    with _prepared_tenants(owner_engine):
+        with database.tenant_connection(ORGANIZATION_A) as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO cases "
+                    "(id, organization_id, title, idempotency_key, request_sha256, correlation_id) "
+                    "VALUES (:id, :organization_id, 'IPsec tunnel unavailable', 'case-create-a', "
+                    ":request_sha256, :correlation_id)"
+                ),
+                {
+                    "id": CASE_A,
+                    "organization_id": ORGANIZATION_A,
+                    "request_sha256": "c" * 64,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO case_inputs "
+                    "(id, organization_id, case_id, input_kind, content_sha256, correlation_id) "
+                    "VALUES (:id, :organization_id, :case_id, 'operator_note', :content_sha256, "
+                    ":correlation_id)"
+                ),
+                {
+                    "id": INPUT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "content_sha256": "a" * 64,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO case_transitions "
+                    "(id, organization_id, case_id, from_state, to_state, version, actor_id, "
+                    "actor_kind, correlation_id) "
+                    "VALUES (:id, :organization_id, :case_id, 'new', 'investigating', 1, "
+                    ":actor_id, 'service', :correlation_id)"
+                ),
+                {
+                    "id": TRANSITION_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "actor_id": ACTOR_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO case_events "
+                    "(id, organization_id, case_id, event_type, aggregate_version, actor_id, "
+                    "correlation_id) "
+                    "VALUES (:id, :organization_id, :case_id, 'case.created.v1', 0, :actor_id, "
+                    ":correlation_id)"
+                ),
+                {
+                    "id": CASE_CREATED_EVENT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "actor_id": ACTOR_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO outbox_events "
+                    "(id, organization_id, case_id, case_event_id, event_type, "
+                    "aggregate_version, correlation_id) "
+                    "VALUES (:id, :organization_id, :case_id, :case_event_id, "
+                    "'case.created.v1', 0, :correlation_id)"
+                ),
+                {
+                    "id": OUTBOX_CREATED_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "case_event_id": CASE_CREATED_EVENT_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO case_events "
+                    "(id, organization_id, case_id, transition_id, event_type, aggregate_version, "
+                    "actor_id, correlation_id) "
+                    "VALUES (:id, :organization_id, :case_id, :transition_id, "
+                    "'case.investigating.v1', 1, :actor_id, :correlation_id)"
+                ),
+                {
+                    "id": CASE_EVENT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "transition_id": TRANSITION_A,
+                    "actor_id": ACTOR_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO outbox_events "
+                    "(id, organization_id, case_id, case_event_id, event_type, "
+                    "aggregate_version, correlation_id) "
+                    "VALUES (:id, :organization_id, :case_id, :case_event_id, "
+                    "'case.investigating.v1', 1, :correlation_id)"
+                ),
+                {
+                    "id": OUTBOX_EVENT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "case_event_id": CASE_EVENT_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+            connection.execute(
+                text(
+                    "UPDATE cases SET state = 'investigating', version = 1 "
+                    "WHERE organization_id = :organization_id AND id = :case_id"
+                ),
+                {"organization_id": ORGANIZATION_A, "case_id": CASE_A},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO consumer_inbox "
+                    "(organization_id, consumer_name, event_id, payload_sha256) "
+                    "VALUES (:organization_id, 'case-projector', :event_id, :payload_sha256)"
+                ),
+                {
+                    "organization_id": ORGANIZATION_A,
+                    "event_id": OUTBOX_EVENT_A,
+                    "payload_sha256": "b" * 64,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO audit_events "
+                    "(id, organization_id, actor_subject, action, correlation_id) "
+                    "VALUES (:id, :organization_id, 'service:case-spine-test', "
+                    "'case.created', :correlation_id)"
+                ),
+                {
+                    "id": AUDIT_EVENT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
+
+        with database.tenant_connection(ORGANIZATION_B) as connection:
+            for table in CASE_SPINE_TABLES:
+                assert connection.scalar(text(f"SELECT count(*) FROM {table}")) == 0
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO cases "
+                        "(id, organization_id, title, idempotency_key, request_sha256, "
+                        "correlation_id) "
+                        "VALUES (:id, :organization_id, 'forged cross-tenant case', "
+                        "'forged-case-b', :request_sha256, :correlation_id)"
+                    ),
+                    {
+                        "id": CASE_B,
+                        "organization_id": ORGANIZATION_A,
+                        "request_sha256": "d" * 64,
+                        "correlation_id": CORRELATION_A,
+                    },
+                )
+
+        with database.tenant_connection(ORGANIZATION_A) as connection:
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text("UPDATE case_events SET event_type = 'forged' WHERE id = :id"),
+                    {"id": CASE_EVENT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO case_transitions "
+                        "(id, organization_id, case_id, from_state, to_state, version, actor_id, "
+                        "actor_kind, correlation_id, verification_note) "
+                        "VALUES (:id, :organization_id, :case_id, 'new', 'resolved', 2, "
+                        ":actor_id, 'human', :correlation_id, 'forged transition')"
+                    ),
+                    {
+                        "id": INVALID_TRANSITION,
+                        "organization_id": ORGANIZATION_A,
+                        "case_id": CASE_A,
+                        "actor_id": ACTOR_A,
+                        "correlation_id": CORRELATION_A,
+                    },
+                )
+
+        with pytest.raises(DBAPIError):
+            with database.tenant_connection(ORGANIZATION_A) as connection:
+                connection.execute(
+                    text(
+                        "UPDATE cases SET state = 'diagnosed', version = 2 "
+                        "WHERE organization_id = :organization_id AND id = :case_id"
+                    ),
+                    {"organization_id": ORGANIZATION_A, "case_id": CASE_A},
+                )
+
+        with owner_engine.begin() as connection:
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text("UPDATE case_events SET event_type = 'forged' WHERE id = :id"),
+                    {"id": CASE_EVENT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text(
+                        "UPDATE outbox_events SET payload = CAST(:payload AS jsonb) WHERE id = :id"
+                    ),
+                    {"id": OUTBOX_EVENT_A, "payload": '{"forged":true}'},
+                )
