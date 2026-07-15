@@ -250,10 +250,10 @@ services:
 
 volumes:
   postgres_data:
-    name: netops-copilot-postgres-data
+    name: "${COMPOSE_PROJECT_NAME:-netops-copilot}-postgres-data"
   redis_data:
-    name: netops-copilot-redis-data
+    name: "${COMPOSE_PROJECT_NAME:-netops-copilot}-redis-data"
   minio_data:
-    name: netops-copilot-minio-data
+    name: "${COMPOSE_PROJECT_NAME:-netops-copilot}-minio-data"
   redpanda_data:
-    name: netops-copilot-redpanda-data
+    name: "${COMPOSE_PROJECT_NAME:-netops-copilot}-redpanda-data"

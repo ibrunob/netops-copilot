@@ -22,6 +22,8 @@ make verify-local
 `make env` creates an ignored `.env` with local-only secrets. If local API or
 PostgreSQL ports are occupied, adjust `NETOPS_PORT` or `POSTGRES_PORT` in that
 ignored file. `make down` stops containers without removing named data volumes.
+Set `COMPOSE_PROJECT_NAME` when running an isolated stack; its data volumes are
+namespaced with that project name and cannot reuse another local stack's data.
 
 Run `make secret-hygiene` before committing configuration changes. It works
 offline, checks tracked plus non-ignored source files for dotenv files and likely
