@@ -34,6 +34,86 @@ The product never writes to a network device. NetOps Copilot makes a future AI
 assistant accountable to evidence and human approval rather than giving it
 unbounded operational access.
 
+## About the project
+
+### Inspiration
+
+Network incidents rarely fail because there is no alert. They fail because the
+context is fragmented: a support ticket is in one system, configuration output
+is pasted into chat, the customer has not supplied a key detail, and the actual
+approval trail is difficult to reconstruct later. In network operations, a
+plausible answer is not enough—operators need to know what evidence supports a
+decision, who made it, and whether a change was actually authorized.
+
+NetOps Copilot was inspired by that gap. We wanted to make the case record—not
+the chat window—the center of an AI-assisted operations workflow. The result is
+an evidence-first workspace where customer follow-up, artifacts, state changes,
+and human approvals belong to the same durable incident.
+
+### What it does
+
+NetOps Copilot gives operations teams a secure case queue and a case workbench
+for network incidents and customer requests. Operators can create cases, track
+them through an explicit lifecycle, ask for customer information, attach
+configuration or audio evidence, and keep an immutable activity history.
+
+The demo is intentionally conservative: it does not push any configuration to
+a router, firewall, or VPN device. Instead, it proves the product foundation a
+future assistant must respect: verified identity, tenant isolation, evidence
+redaction, versioned state transitions, and human-controlled remediation.
+
+### How we built it
+
+We built a monorepo around a Next.js 16 web application and a FastAPI domain
+API. The web tier uses a narrow server-side BFF, authorization-code PKCE, and
+encrypted HttpOnly session cookies so API bearer tokens are not exposed to the
+browser. The API persists cases, inputs, transitions, audit events, and outbox
+events in PostgreSQL with tenant row-level security and uses optimistic
+concurrency plus idempotency keys to make concurrent operator work safe.
+
+For evidence intake, configuration previews are redacted before display and
+uploads use short-lived MinIO capabilities, persisted metadata, and ClamAV
+scanning. Redis, Temporal, Keycloak, and Docker Compose complete the local
+platform; a generated TypeScript client keeps the web/API contract typed.
+
+Codex accelerated the implementation by helping decompose the architecture into
+small reviewable workstreams, then iterating on migrations, typed contracts,
+security tests, UI flows, and the reproducible local demo. Use the GPT-5.6
+wording in this submission only if it accurately matches the Codex session ID
+you provide.
+
+### Challenges we ran into
+
+The hard part was not rendering a convincing dashboard. It was keeping the
+demo's product experience honest while preserving real operational safeguards.
+
+- **Authentication across a local multi-service stack.** Browser-visible OIDC
+  URLs and Docker-internal service URLs are different address spaces. We solved
+  this with a server-side PKCE exchange, a verified issuer, an encrypted cookie,
+  and an explicit local-browser compatibility path.
+- **Preventing a duplicate case during an unreliable browser submission.** We
+  use idempotency keys and added a normal HTML form fallback behind the same
+  authenticated endpoint, so failure of client-side transport cannot silently
+  create duplicate incidents.
+- **Making sample data believable without using mock state.** The five demo
+  cases are inserted idempotently into the real local PostgreSQL tables and
+  include immutable events and transitions. Queue filters, workbench history,
+  and state changes still use the live API.
+- **Handling sensitive evidence responsibly.** We chose redaction-before-
+  preview/model boundaries and retained a human approval boundary rather than
+  representing an autonomous device-changing capability that the product does
+  not yet support.
+
+### What we learned
+
+We learned that operational AI needs a strong product boundary before it needs
+more autonomy. The most valuable capabilities are often the unglamorous ones:
+reproducible state, scoped identity, visible unknowns, stable contracts, and a
+clear record of human judgment. Building the demo also reinforced that a
+multi-service project is much easier to evaluate when it has one command to
+start, deterministic sample data, and a short walkthrough focused on a real
+operator decision.
+
 ## How it works
 
 The Next.js workspace is a narrow, authenticated BFF over a FastAPI domain API.
