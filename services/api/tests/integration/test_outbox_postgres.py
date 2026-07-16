@@ -141,15 +141,17 @@ def test_stale_lease_cannot_settle_and_delivery_metadata_remains_mutable(
             with pytest.raises(OutboxLeaseLostError):
                 repository.mark_published(old_lease, published_at=NOW + timedelta(minutes=2))
             repository.mark_published(current.lease, published_at=NOW + timedelta(minutes=2))
-            assert connection.scalar(
-                text("SELECT published_at IS NOT NULL FROM outbox_events WHERE id = :id"),
-                {"id": current.outbox_id},
-            ) is True
+            assert (
+                connection.scalar(
+                    text("SELECT published_at IS NOT NULL FROM outbox_events WHERE id = :id"),
+                    {"id": current.outbox_id},
+                )
+                is True
+            )
             with pytest.raises(DBAPIError), connection.begin_nested():
                 connection.execute(
                     text(
-                        "UPDATE outbox_events SET payload = CAST(:payload AS jsonb) "
-                        "WHERE id = :id"
+                        "UPDATE outbox_events SET payload = CAST(:payload AS jsonb) WHERE id = :id"
                     ),
                     {"id": current.outbox_id, "payload": '{"forged":true}'},
                 )
@@ -163,6 +165,7 @@ def test_consumer_inbox_deduplicates_competing_delivery_and_rejects_payload_chan
     payload = {"case_id": "same-event", "version": 1}
 
     with _prepared_tenants(owner_engine):
+
         def consume() -> Literal["new", "replayed"]:
             with database.tenant_connection(ORGANIZATION_A) as connection:
                 inserted = TenantConsumerInbox(connection, ORGANIZATION_A).record_once(

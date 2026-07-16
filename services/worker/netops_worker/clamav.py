@@ -36,9 +36,7 @@ class PrivateArtifactReader(Protocol):
 class ClamAvSocketFactory(Protocol):
     """Small seam for testing the clamd protocol without a daemon."""
 
-    def create_connection(
-        self, address: tuple[str, int], timeout: float
-    ) -> socket.socket:
+    def create_connection(self, address: tuple[str, int], timeout: float) -> socket.socket:
         """Open the private clamd TCP connection."""
 
 
@@ -68,9 +66,7 @@ class ClamAvSettings:
 
 
 class _SocketModuleFactory:
-    def create_connection(
-        self, address: tuple[str, int], timeout: float
-    ) -> socket.socket:
+    def create_connection(self, address: tuple[str, int], timeout: float) -> socket.socket:
         return socket.create_connection(address, timeout=timeout)
 
 

@@ -34,8 +34,11 @@ def _principal(
     roles: frozenset[CaseRole] = frozenset({CaseRole.OPERATOR}),
 ) -> AuthenticatedPrincipal:
     return AuthenticatedPrincipal(
-        subject="operator-1", organization_id=ORGANIZATION_ID, roles=roles,
-        asset_ids=frozenset({ASSET_ID}), issuer="https://issuer.example.test/realms/netops",
+        subject="operator-1",
+        organization_id=ORGANIZATION_ID,
+        roles=roles,
+        asset_ids=frozenset({ASSET_ID}),
+        issuer="https://issuer.example.test/realms/netops",
         client_id="netops-web",
     )
 
@@ -51,9 +54,16 @@ class FakeCaseRepository:
         now = datetime(2026, 7, 16, tzinfo=UTC)
         return CaseDetail(
             case=CaseRecord(
-                case_id=CASE_ID, state=CaseState.NEW, version=0, title="Router config",
-                category=None, severity="high", asset_id=ASSET_ID, created_by_actor_id=uuid4(),
-                created_at=now, updated_at=now,
+                case_id=CASE_ID,
+                state=CaseState.NEW,
+                version=0,
+                title="Router config",
+                category=None,
+                severity="high",
+                asset_id=ASSET_ID,
+                created_by_actor_id=uuid4(),
+                created_at=now,
+                updated_at=now,
             ),
             timeline=(),
         )
@@ -91,7 +101,8 @@ def test_completion_returns_only_safe_result_and_passes_scoped_dependencies(
 
     assert response.status_code == 200
     assert response.json() == {
-        "artifact_id": str(ARTIFACT_ID), "completed_at": "2026-07-16T00:00:00Z",
+        "artifact_id": str(ARTIFACT_ID),
+        "completed_at": "2026-07-16T00:00:00Z",
         "already_completed": False,
     }
     assert seen["case_id"] == CASE_ID

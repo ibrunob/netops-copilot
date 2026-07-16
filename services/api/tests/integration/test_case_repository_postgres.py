@@ -134,18 +134,29 @@ def test_repository_create_then_transition_commits_deferred_history_constraints(
                 ("case.created.v1", 0),
                 ("case.investigating.v1", 1),
             ]
-            assert connection.scalar(
-                text("SELECT count(*) FROM case_transitions WHERE case_id = :case_id"),
-                {"case_id": created.case_id},
-            ) == 1
-            assert connection.scalar(
-                text("SELECT count(*) FROM outbox_events WHERE case_id = :case_id"),
-                {"case_id": created.case_id},
-            ) == 2
-            assert connection.scalar(
-                text("SELECT count(*) FROM audit_events WHERE organization_id = :organization_id"),
-                {"organization_id": ORGANIZATION_A},
-            ) == 2
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM case_transitions WHERE case_id = :case_id"),
+                    {"case_id": created.case_id},
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM outbox_events WHERE case_id = :case_id"),
+                    {"case_id": created.case_id},
+                )
+                == 2
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT count(*) FROM audit_events WHERE organization_id = :organization_id"
+                    ),
+                    {"organization_id": ORGANIZATION_A},
+                )
+                == 2
+            )
 
 
 def test_repository_compare_and_swap_allows_one_concurrent_winner(
@@ -190,22 +201,36 @@ def test_repository_compare_and_swap_allows_one_concurrent_winner(
         with database.tenant_connection(ORGANIZATION_A) as connection:
             repository = TenantCaseRepository(connection, ORGANIZATION_A)
             assert repository.get_snapshot(created.case_id).version == 1
-            assert connection.scalar(
-                text("SELECT count(*) FROM case_transitions WHERE case_id = :case_id"),
-                {"case_id": created.case_id},
-            ) == 1
-            assert connection.scalar(
-                text("SELECT count(*) FROM case_events WHERE case_id = :case_id"),
-                {"case_id": created.case_id},
-            ) == 2
-            assert connection.scalar(
-                text("SELECT count(*) FROM outbox_events WHERE case_id = :case_id"),
-                {"case_id": created.case_id},
-            ) == 2
-            assert connection.scalar(
-                text("SELECT count(*) FROM audit_events WHERE organization_id = :organization_id"),
-                {"organization_id": ORGANIZATION_A},
-            ) == 2
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM case_transitions WHERE case_id = :case_id"),
+                    {"case_id": created.case_id},
+                )
+                == 1
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM case_events WHERE case_id = :case_id"),
+                    {"case_id": created.case_id},
+                )
+                == 2
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM outbox_events WHERE case_id = :case_id"),
+                    {"case_id": created.case_id},
+                )
+                == 2
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT count(*) FROM audit_events WHERE organization_id = :organization_id"
+                    ),
+                    {"organization_id": ORGANIZATION_A},
+                )
+                == 2
+            )
 
 
 def test_repository_idempotency_replays_only_the_same_canonical_request(

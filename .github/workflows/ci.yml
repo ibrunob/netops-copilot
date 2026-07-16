@@ -68,8 +68,15 @@ jobs:
       - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
         with:
           enable-cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
       - name: Synchronize locked Python environment
         run: uv sync --frozen --extra dev
+      - name: Install locked web dependencies for generated-client contract tests
+        run: npm --prefix apps/web ci
       - name: Lint
         run: uv run --frozen ruff check services/api services/worker
       - name: Type check

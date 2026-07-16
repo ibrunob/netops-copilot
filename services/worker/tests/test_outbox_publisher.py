@@ -46,9 +46,7 @@ class FakeRepository:
             raise OutboxLeaseLostError(lease.outbox_id)
         self.published.append((lease, published_at))
 
-    def schedule_retry(
-        self, lease: OutboxLease, *, retry_at: datetime, error_code: str
-    ) -> None:
+    def schedule_retry(self, lease: OutboxLease, *, retry_at: datetime, error_code: str) -> None:
         if self.lose_retry:
             raise OutboxLeaseLostError(lease.outbox_id)
         self.retries.append((lease, retry_at, error_code))
