@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from netops_api.application.cases import (
+    CaseListCursor,
     CaseRecord,
     CaseService,
     CreateCaseCommand,
@@ -332,9 +333,43 @@ def test_repository_reads_tenant_scoped_list_and_event_timeline() -> None:
     listed = repository.list_cases(limit=10)
     detail = repository.get_detail(CASE_ID)
 
-    assert listed[0].state is CaseState.INVESTIGATING
+    assert listed.items[0].state is CaseState.INVESTIGATING
     assert detail.case.case_id == CASE_ID
     assert detail.timeline[0].to_state is CaseState.INVESTIGATING
     assert all(
         parameters["organization_id"] == ORGANIZATION_ID for _, parameters in connection.executed
     )
+    list_statement, list_parameters = connection.executed[0]
+    assert "(updated_at, id) <" in list_statement
+    assert "title ILIKE" in list_statement
+    assert list_parameters["limit"] == 11
+    assert list_parameters["cursor_updated_at"] is None
+
+
+def test_repository_uses_exclusive_cursor_and_fetches_one_extra_row() -> None:
+    second_case_id = UUID("00000000-0000-0000-0000-000000000005")
+    second_updated_at = datetime(2026, 7, 14, tzinfo=UTC)
+    second_row = case_row()
+    second_row["id"] = second_case_id
+    second_row["updated_at"] = second_updated_at
+    cursor = CaseListCursor(updated_at=NOW, case_id=CASE_ID)
+    connection = FakeConnection([FakeResult(all_rows=[case_row(), second_row])])
+    repository = TenantCaseRepository(connection, ORGANIZATION_ID)  # type: ignore[arg-type]
+
+    page = repository.list_cases(
+        limit=1,
+        cursor=cursor,
+        query="vpn",
+        state=CaseState.INVESTIGATING,
+        severity="high",
+    )
+
+    assert page.items == (page.items[0],)
+    assert page.next_cursor == CaseListCursor(updated_at=NOW, case_id=CASE_ID)
+    _, parameters = connection.executed[0]
+    assert parameters["limit"] == 2
+    assert parameters["cursor_updated_at"] == NOW
+    assert parameters["cursor_case_id"] == CASE_ID
+    assert parameters["query"] == "vpn"
+    assert parameters["state"] == "investigating"
+    assert parameters["severity"] == "high"

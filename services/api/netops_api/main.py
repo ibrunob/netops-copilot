@@ -11,7 +11,13 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from netops_api.api.artifact_status import router as artifact_status_router
+from netops_api.api.artifact_upload_completion import router as artifact_upload_completion_router
+from netops_api.api.artifact_uploads import router as artifact_uploads_router
+from netops_api.api.cases import router as cases_router
+from netops_api.api.config_preview import router as config_preview_router
 from netops_api.api.errors import register_exception_handlers
+from netops_api.api.events import router as events_router
 from netops_api.api.health import router as health_router
 from netops_api.api.identity import router as identity_router
 from netops_api.core.config import Settings, get_settings
@@ -62,6 +68,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(identity_router)
+    app.include_router(cases_router)
+    app.include_router(artifact_uploads_router)
+    app.include_router(artifact_upload_completion_router)
+    app.include_router(artifact_status_router)
+    app.include_router(config_preview_router)
+    app.include_router(events_router)
     configure_opentelemetry(app, resolved_settings)
     configure_sentry(resolved_settings)
 

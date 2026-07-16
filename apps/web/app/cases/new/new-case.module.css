@@ -1,0 +1,217 @@
+.intake {
+  width: min(100%, 76rem);
+  margin: 0 auto;
+  padding-top: clamp(1.25rem, 4vw, 4rem);
+  padding-bottom: clamp(2rem, 6vw, 5rem);
+}
+
+.returnLink {
+  color: #4c5c55;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.returnLink:hover { color: var(--ink-950); }
+
+.masthead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 23rem);
+  gap: 2rem;
+  align-items: end;
+  margin-top: clamp(2rem, 5vw, 4.5rem);
+  padding-bottom: 1.25rem;
+  border-bottom: 4px solid var(--ink-950);
+}
+
+.masthead h1 { margin-top: 0.7rem; }
+
+.headerNote {
+  padding: 0.9rem 1rem;
+  border-left: 3px solid var(--signal-700);
+  color: #4c5c55;
+  font-size: 0.74rem;
+}
+
+.form { margin-top: 1px; }
+
+.requiredPanel,
+.evidencePanel {
+  padding: clamp(1.25rem, 3vw, 2.2rem);
+  border: 1px solid var(--ink-950);
+  border-top: 0;
+}
+
+.evidencePanel {
+  background: var(--ink-950);
+  color: var(--paper-50);
+}
+
+.sectionHeading {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.sectionIndex {
+  color: var(--signal-700);
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 0.8;
+}
+
+.evidencePanel .sectionIndex { color: var(--signal-500); }
+
+.sectionHeading h2 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.45rem);
+  text-transform: uppercase;
+}
+
+.sectionHeading div p {
+  max-width: 40rem;
+  margin-top: 0.7rem;
+  color: #4c5c55;
+  font-size: 0.76rem;
+}
+
+.evidencePanel .sectionHeading div p { color: var(--paper-300); }
+
+.fieldGrid,
+.evidenceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.8rem;
+}
+
+.fieldGrid .titleField { grid-column: 1 / -1; }
+
+.form label {
+  display: grid;
+  gap: 0.43rem;
+  color: #263a34;
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.form label span {
+  color: #728078;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+}
+
+.evidencePanel label { color: var(--paper-100); }
+
+.form input,
+.form select,
+.form textarea {
+  width: 100%;
+  border: 1px solid var(--ink-950);
+  border-radius: 0;
+  background: var(--paper-50);
+  color: var(--ink-950);
+  font: inherit;
+  font-size: 0.82rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.form input,
+.form select { min-height: 2.85rem; padding: 0.62rem 0.72rem; }
+.form textarea { min-height: 9rem; padding: 0.72rem; resize: vertical; }
+
+.evidencePanel input,
+.evidencePanel textarea {
+  border-color: rgb(242 241 233 / 38%);
+  background: var(--ink-900);
+  color: var(--paper-50);
+}
+
+.form input::placeholder,
+.form textarea::placeholder { color: #728078; }
+
+.form input:focus-visible,
+.form select:focus-visible,
+.form textarea:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.helpText {
+  max-width: 57rem;
+  margin: 1rem 0 0 4.35rem;
+  color: #4c5c55;
+  font-size: 0.7rem;
+}
+
+.evidencePanel .helpText { color: var(--paper-300); }
+
+.submitBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2rem;
+  align-items: center;
+  padding: 1.25rem clamp(1.25rem, 3vw, 2.2rem);
+  background: var(--signal-500);
+  color: var(--ink-950);
+}
+
+.submitTitle {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.submitCopy { max-width: 48rem; margin-top: 0.4rem; font-size: 0.71rem; }
+
+.submitBar button {
+  min-width: 10.5rem;
+  min-height: 3rem;
+  border: 1px solid var(--ink-950);
+  background: var(--ink-950);
+  color: var(--paper-50);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.submitBar button:hover:not(:disabled) { background: #263a34; }
+.submitBar button:disabled { cursor: not-allowed; opacity: 0.65; }
+
+.actionResult {
+  margin: 1px 0 0;
+  padding: 0.9rem 1rem;
+  border-left: 4px solid var(--signal-700);
+  background: #e7ebd6;
+  color: var(--ink-950);
+  font-size: 0.75rem;
+}
+
+.actionResult[data-status="error"] {
+  border-color: var(--alert-500);
+  background: #f6e4da;
+}
+
+@media (max-width: 48rem) {
+  .masthead,
+  .submitBar { grid-template-columns: 1fr; gap: 1.25rem; }
+
+  .fieldGrid,
+  .evidenceGrid { grid-template-columns: 1fr; }
+
+  .fieldGrid .titleField { grid-column: auto; }
+
+  .helpText { margin-left: 0; }
+
+  .submitBar button { width: 100%; }
+}

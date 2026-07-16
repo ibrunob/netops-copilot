@@ -16,6 +16,9 @@ export function ProductShell({
 }>) {
   return (
     <div className="product-shell">
+      <a className="skipLink" href="#main-content">
+        Skip to case content
+      </a>
       <aside className="product-rail" aria-label="Primary navigation">
         <Link className="wordmark" href="/cases">
           <span aria-hidden="true">N/</span>
@@ -41,7 +44,9 @@ export function ProductShell({
           <small>{session.displayName}</small>
         </div>
       </aside>
-      <main className="product-main">{children}</main>
+      <main className="product-main" id="main-content" tabIndex={-1}>
+        {children}
+      </main>
     </div>
   );
 }

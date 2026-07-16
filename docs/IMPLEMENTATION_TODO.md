@@ -29,11 +29,11 @@ This is the executable implementation sequence. Stages are intentionally gated: 
 
 **Depends on:** Milestone 1.
 
-- [ ] Implement `cases`, immutable `case_inputs`, `case_events`, `case_transitions`, `audit_events`, and transactional `outbox_events` migrations.
-- [ ] Build the domain state machine with database/API validation, optimistic concurrency, idempotency keys, and actor/correlation capture.
-- [ ] Deliver OpenAPI-first case creation, list, detail, timeline, transition, resolution, and feedback endpoints.
-- [ ] Add an outbox publisher plus consumer inbox deduplication. Persist then stream timeline events using SSE with last-event recovery.
-- [ ] Generate a TypeScript API client and contract tests from OpenAPI.
+- [x] Implement `cases`, immutable `case_inputs`, `case_events`, `case_transitions`, `audit_events`, and transactional `outbox_events` migrations.
+- [x] Build the domain state machine with database/API validation, optimistic concurrency, idempotency keys, and actor/correlation capture.
+- [x] Deliver OpenAPI-first case creation, list, detail, timeline, transition, resolution, and feedback endpoints.
+- [x] Add an outbox publisher plus consumer inbox deduplication. Persist then stream timeline events using SSE with last-event recovery.
+- [x] Generate a TypeScript API client and contract tests from OpenAPI.
 
 **Accept:** two concurrent state changes yield a deterministic version conflict; invalid transitions cannot be committed; an outbox publisher crash loses no event; queue/detail/timeline operate with no AI dependency.
 

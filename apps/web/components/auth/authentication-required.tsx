@@ -8,11 +8,16 @@ export function AuthenticationRequired() {
         <h1 id="authentication-required-title">Sign-in is required.</h1>
         <p>
           The product shell will not render without a verified enterprise session.
-          Configure the OIDC adapter and API audience before enabling case access.
+          Sign in through your configured identity provider to continue.
         </p>
-        <Link className="button button-secondary" href="/">
-          Return to product entry
-        </Link>
+        <div className="auth-gate-actions">
+          <a className="button button-primary" href="/auth/login">
+            Sign in securely
+          </a>
+          <Link className="button button-secondary" href="/">
+            Return to product entry
+          </Link>
+        </div>
       </section>
     </main>
   );

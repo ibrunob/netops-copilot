@@ -10,7 +10,7 @@ BACKUP_FILE ?= tmp/backups/netops-local.dump
 
 .DEFAULT_GOAL := help
 
-.PHONY: help env check-tools check-locks bootstrap up up-events up-observability down compose-config verify-local verify-signed-trace verify-pkce-trace secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore db-restore-drill seed
+.PHONY: help env check-tools check-locks bootstrap up demo up-events up-observability down compose-config verify-local verify-signed-trace verify-pkce-trace secret-hygiene lint typecheck test migrate test-db-up test-db-ready test-db-down test-db-reset test-migrate test-rls db-backup db-restore db-restore-drill seed
 
 help: ## Show the supported local development commands.
 
@@ -28,6 +28,9 @@ env: ## Create an untracked local environment file from the safe template.
 			printf '%s=%s\n' "$$key" "$$(openssl rand -hex 24)" >> "$(ENV_FILE)"; \
 		fi; \
 	done
+	@if ! grep -q '^NETOPS_SESSION_ENCRYPTION_SECRET=.\+' "$(ENV_FILE)"; then \
+		printf '%s=%s\n' "NETOPS_SESSION_ENCRYPTION_SECRET" "$$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n=')" >> "$(ENV_FILE)"; \
+	fi
 	@if ! grep -q '^KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME=.\+' "$(ENV_FILE)"; then \
 		printf '%s\n' "KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME=netops-admin" >> "$(ENV_FILE)"; \
 	fi
@@ -53,6 +56,10 @@ bootstrap: env check-tools check-locks ## Install locked Python and web dependen
 up: env ## Start the core local platform (PostgreSQL, Redis, MinIO, Temporal, Keycloak).
 
 	$(COMPOSE) --env-file $(ENV_FILE) --profile core up -d --build
+
+demo: up seed verify-local ## Start the real local stack, load idempotent demo cases, and verify it is healthy.
+
+	@printf '%s\n' "Demo is ready at http://localhost:$${WEB_PORT:-3000}/cases (demo-operator / netops-demo)."
 
 up-events: env ## Start the core platform plus Redpanda.
 
@@ -155,7 +162,7 @@ test-rls: test-migrate check-tools check-locks ## Run real PostgreSQL tenant-iso
 		NETOPS_RLS_OWNER_DATABASE_URL="postgresql+psycopg://$${POSTGRES_TEST_USER:-netops_test}:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
 		NETOPS_RLS_TEST_DATABASE_URL="postgresql+psycopg://netops_app:$$POSTGRES_APP_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
 		export NETOPS_RLS_OWNER_DATABASE_URL NETOPS_RLS_TEST_DATABASE_URL; \
-		$(UV) run --frozen pytest -m integration services/api/tests/integration
+		$(UV) run --frozen pytest -m integration services/api/tests/integration services/worker/tests
 
 db-backup: env ## Create a custom-format application DB backup at BACKUP_FILE (default: tmp/backups/netops-local.dump).
 
@@ -200,7 +207,7 @@ db-restore-drill: test-migrate ## Prove an isolated backup restores a migrated, 
 	@$(MAKE) test-rls
 	@printf '%s\n' "Restore drill also passed the isolated runtime-role and RLS acceptance checks."
 
-seed: ## Fail until M1/M2 provide an explicit, tenant-safe development seed path.
+seed: env ## Add idempotent, local-only operational demo cases to the real development database.
 
-	@printf '%s\n' "Seeding is not available: no tenant-safe persistence seed contract exists yet." >&2
-	@exit 1
+	@$(COMPOSE) --env-file $(ENV_FILE) --profile core exec -T postgres sh -ec 'PGPASSWORD="$$POSTGRES_PASSWORD" exec psql --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" --set ON_ERROR_STOP=1' < scripts/seed-local-demo.sql
+	@printf '%s\n' "Local demo queue is ready. Sign in as demo-operator and open /cases."

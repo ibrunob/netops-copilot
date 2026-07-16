@@ -69,6 +69,47 @@ realm import. The imported realm provides roles and the PKCE-enabled web client
 only. Create temporary test users through the local Keycloak admin UI after
 startup, then remove them when no longer needed.
 
+`make env` also generates `NETOPS_SESSION_ENCRYPTION_SECRET` as a 32-byte
+base64url AES-GCM key. The web BFF uses it only to encrypt its HttpOnly session
+and PKCE transaction cookies; it is not an OIDC client secret and must not be
+put in a `NEXT_PUBLIC_*` variable.
+
+## Browser login through the local BFF
+
+After `make up`, use the configured `WEB_PORT` at
+**`http://localhost:<WEB_PORT>`** (the default is `3000`; inspect `.env` if it
+is overridden, for example to `3001`) rather than a Compose DNS name, then
+select **Open case workspace**.
+The browser is redirected to the public Keycloak issuer at
+`http://localhost:<KEYCLOAK_PORT>`, then back to `/auth/callback`. The access
+token is exchanged and held only in the encrypted server cookie; browser
+JavaScript receives neither the token nor tenant input.
+
+Compose deliberately has two OIDC address classes:
+
+- `NETOPS_OIDC_ISSUER` is the browser-visible `localhost` URL and the exact
+  issuer that the API validates.
+- `NETOPS_OIDC_DISCOVERY_URL` and `NETOPS_OIDC_TOKEN_ENDPOINT` are
+  server-only `keycloak:8080` URLs. They let the web container perform
+  discovery and the code exchange without trying to reach host loopback.
+  Discovery metadata must still declare the public issuer, which the BFF
+  verifies before accepting it.
+
+## Local demo queue
+
+For a time-boxed product walkthrough, sign in with the local-only
+`demo-operator` / `netops-demo` account and run `make seed`. This creates five
+idempotent example incidents in the real local PostgreSQL case/event/outbox
+tables; the queue, filters, workbench, and state changes still use the signed
+OIDC session and live API. It does not add browser-local mock data or affect a
+production environment.
+
+Do not set the issuer to `http://keycloak:8080`: that address is unavailable to
+the browser and would produce an `iss` value the API rejects. If changing the
+host ports, update the local realm redirect URI and the public issuer together;
+the checked-in development realm permits the common local ports `3000` and
+`3001` for both `localhost` and `127.0.0.1` only.
+
 ## Local endpoints
 
 | Service | Host endpoint | Purpose |
