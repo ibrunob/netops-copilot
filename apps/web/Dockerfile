@@ -9,7 +9,7 @@ FROM node:${NODE_VERSION}-bookworm-slim AS base
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NPM_CONFIG_UPDATE_NOTIFIER=false
 
-WORKDIR /app
+WORKDIR /repo/apps/web
 
 FROM base AS dependencies
 
@@ -21,6 +21,9 @@ RUN npm ci --ignore-scripts
 FROM dependencies AS builder
 
 COPY apps/web/ ./
+# The generated, checked OpenAPI client is a sibling package referenced by the
+# web app. Preserve its repository-relative path during the monorepo build.
+COPY packages/api-client/ /repo/packages/api-client/
 RUN npm run build
 
 FROM base AS runner
@@ -34,10 +37,11 @@ ENV NODE_ENV=production \
 RUN groupadd --gid 10001 netops && \
     useradd --uid 10001 --gid netops --create-home --shell /usr/sbin/nologin netops
 
-COPY --from=builder --chown=netops:netops /app/package.json ./package.json
-COPY --from=builder --chown=netops:netops /app/next.config.ts ./next.config.ts
-COPY --from=builder --chown=netops:netops /app/.next ./.next
-COPY --from=dependencies --chown=netops:netops /app/node_modules ./node_modules
+COPY --from=builder --chown=netops:netops /repo/apps/web/package.json ./package.json
+COPY --from=builder --chown=netops:netops /repo/apps/web/next.config.ts ./next.config.ts
+COPY --from=builder --chown=netops:netops /repo/apps/web/.next ./.next
+COPY --from=builder --chown=netops:netops /repo/packages/api-client /repo/packages/api-client
+COPY --from=dependencies --chown=netops:netops /repo/apps/web/node_modules ./node_modules
 
 RUN npm prune --omit=dev --ignore-scripts && npm cache clean --force
 

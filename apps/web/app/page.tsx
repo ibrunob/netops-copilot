@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 export default function HomePage() {
   return (
     <main className="landing-shell">
@@ -12,9 +10,9 @@ export default function HomePage() {
           evidence, and recording human-verified resolutions.
         </p>
         <div className="landing-actions">
-          <Link className="button button-primary" href="/cases">
-            Open case workspace
-          </Link>
+          <a className="button button-primary" href="/auth/login">
+            Sign in to case workspace
+          </a>
         </div>
         <p className="landing-footnote">
           Access is enforced by the enterprise OIDC boundary. The local product

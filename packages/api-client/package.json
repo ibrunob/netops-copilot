@@ -1,0 +1,9 @@
+{
+  "name": "@netops-copilot/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/generated.ts"
+  }
+}

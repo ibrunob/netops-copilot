@@ -147,6 +147,22 @@ class CaseRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class CaseListCursor:
+    """Exclusive stable-order boundary for a page of case projections."""
+
+    updated_at: datetime
+    case_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class CaseListPage:
+    """A bounded case page with an optional cursor for its next page."""
+
+    items: tuple[CaseRecord, ...]
+    next_cursor: CaseListCursor | None
+
+
+@dataclass(frozen=True, slots=True)
 class CaseTimelineEntry:
     """Immutable event/transition history item for one case timeline."""
 
@@ -331,17 +347,46 @@ class TenantCaseRepository:
             )
             return _case_record(updated)
 
-    def list_cases(self, *, limit: int = 50) -> tuple[CaseRecord, ...]:
-        """List current tenant case projections in stable recent-update order."""
+    def list_cases(
+        self,
+        *,
+        asset_ids: tuple[UUID, ...] = (),
+        limit: int = 50,
+        cursor: CaseListCursor | None = None,
+        query: str | None = None,
+        state: CaseState | None = None,
+        severity: str | None = None,
+    ) -> CaseListPage:
+        """List a cursor page limited to the signed asset scope in stable order."""
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100.")
+        if query is not None and len(query.strip()) > 100:
+            raise ValueError("query must contain at most 100 characters.")
+        if severity is not None and severity not in {"low", "medium", "high", "critical"}:
+            raise ValueError("severity must be low, medium, high, or critical.")
         rows = self._mappings(
             self._connection.execute(
                 _LIST_CASES,
-                {"organization_id": self._organization_id, "limit": limit},
+                {
+                    "organization_id": self._organization_id,
+                    "asset_ids": list(asset_ids),
+                    "cursor_case_id": cursor.case_id if cursor is not None else None,
+                    "cursor_updated_at": cursor.updated_at if cursor is not None else None,
+                    "limit": limit + 1,
+                    "query": query.strip() if query is not None and query.strip() else None,
+                    "severity": severity,
+                    "state": state.value if state is not None else None,
+                },
             )
         )
-        return tuple(_case_record(row) for row in rows)
+        records = tuple(_case_record(row) for row in rows)
+        items = records[:limit]
+        next_cursor = (
+            CaseListCursor(updated_at=items[-1].updated_at, case_id=items[-1].case_id)
+            if len(records) > limit and items
+            else None
+        )
+        return CaseListPage(items=items, next_cursor=next_cursor)
 
     def get_detail(self, case_id: UUID) -> CaseDetail:
         """Return one tenant-visible projection and its immutable, ordered timeline."""
@@ -674,6 +719,21 @@ _LIST_CASES = text(
            created_at, updated_at
     FROM cases
     WHERE organization_id = :organization_id
+      AND (asset_id IS NULL OR asset_id = ANY(CAST(:asset_ids AS uuid[])))
+      AND (CAST(:state AS text) IS NULL OR state = CAST(:state AS text))
+      AND (CAST(:severity AS text) IS NULL OR severity = CAST(:severity AS text))
+      AND (
+        CAST(:query AS text) IS NULL
+        OR title ILIKE '%' || CAST(:query AS text) || '%'
+        OR COALESCE(category, '') ILIKE '%' || CAST(:query AS text) || '%'
+        OR CAST(id AS text) ILIKE '%' || CAST(:query AS text) || '%'
+      )
+      AND (
+        CAST(:cursor_updated_at AS timestamptz) IS NULL
+        OR (updated_at, id) < (
+          CAST(:cursor_updated_at AS timestamptz), CAST(:cursor_case_id AS uuid)
+        )
+      )
     ORDER BY updated_at DESC, id DESC
     LIMIT :limit
     """

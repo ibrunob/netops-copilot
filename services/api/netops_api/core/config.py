@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from functools import lru_cache
 from typing import Literal
@@ -97,6 +98,47 @@ class AuthSettings(BaseModel):
         return value
 
 
+class ArtifactStoreSettings(BaseModel):
+    """Non-secret configuration for the S3-compatible artifact-store boundary.
+
+    The endpoint visible to a browser is deliberately separate from the private
+    Compose endpoint used by the API for object verification. Credentials are
+    secrets and are never returned from an upload capability.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool = False
+    bucket: str = Field(default="netops-artifacts", min_length=3, max_length=63)
+    presign_ttl_seconds: int = Field(default=300, ge=30, le=900)
+    public_endpoint_url: str = "http://localhost:9000"
+    access_key_id: str | None = None
+    secret_access_key: SecretStr | None = None
+
+    @field_validator("bucket")
+    @classmethod
+    def require_safe_bucket_name(cls, value: str) -> str:
+        """Accept a conservative DNS-compatible S3 bucket name."""
+        normalized = value.strip()
+        if not normalized or normalized != value:
+            raise ValueError("must not be blank or contain leading/trailing whitespace")
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?", normalized):
+            raise ValueError("must be a 3 to 63 character lowercase DNS-compatible bucket name")
+        return normalized
+
+    @field_validator("public_endpoint_url")
+    @classmethod
+    def require_public_http_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+        ):
+            raise ValueError("must be an absolute HTTP(S) origin without a path")
+        return value.rstrip("/")
+
+
 class Settings(BaseSettings):
     """Runtime settings for the API service.
 
@@ -131,6 +173,7 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
     dependencies: DependencyEndpoints = Field(default_factory=DependencyEndpoints)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    artifact_store: ArtifactStoreSettings = Field(default_factory=ArtifactStoreSettings)
 
 
 @lru_cache(maxsize=1)

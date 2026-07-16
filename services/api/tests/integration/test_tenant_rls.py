@@ -38,8 +38,10 @@ OUTBOX_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667794")
 ACTOR_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667795")
 CORRELATION_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667796")
 AUDIT_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667797")
+ARTIFACT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667798")
+ARTIFACT_PROCESSING_EVENT_A = UUID("018f0b3c-5e8a-7f0a-8ac4-334455667799")
 FORCED_OWNER_ROLE = "netops_rls_force_owner"
-CASE_SPINE_TABLES = (
+TENANT_PERSISTENCE_TABLES = (
     "cases",
     "case_inputs",
     "case_events",
@@ -47,6 +49,9 @@ CASE_SPINE_TABLES = (
     "outbox_events",
     "consumer_inbox",
     "audit_events",
+    "artifacts",
+    "artifact_upload_intents",
+    "artifact_processing_events",
 )
 
 
@@ -88,8 +93,10 @@ def _clear_case_spine(connection: Connection) -> None:
     """Clear isolated test fixtures without weakening append-only triggers."""
     connection.execute(
         text(
-            "TRUNCATE TABLE consumer_inbox, outbox_events, case_events, case_transitions, "
-            "case_inputs, cases, audit_events"
+            "TRUNCATE TABLE artifact_processing_events, artifact_upload_intents, artifacts, "
+            "consumer_inbox, "
+            "outbox_events, case_events, "
+            "case_transitions, case_inputs, cases, audit_events"
         )
     )
 
@@ -219,7 +226,8 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                 "FROM pg_class JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace "
                 "WHERE nspname = 'public' AND relname IN "
                 "('cases', 'case_inputs', 'case_events', 'case_transitions', "
-                "'outbox_events', 'consumer_inbox', 'audit_events')"
+                "'outbox_events', 'consumer_inbox', 'audit_events', 'artifacts', "
+                "'artifact_upload_intents', 'artifact_processing_events')"
             )
         ).all()
         policies = set(
@@ -228,14 +236,15 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                     "SELECT policyname FROM pg_policies "
                     "WHERE schemaname = 'public' AND tablename IN "
                     "('cases', 'case_inputs', 'case_events', 'case_transitions', "
-                "'outbox_events', 'consumer_inbox', 'audit_events')"
+                    "'outbox_events', 'consumer_inbox', 'audit_events', 'artifacts', "
+                    "'artifact_upload_intents', 'artifact_processing_events')"
                 )
             ).all()
         )
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
 
-    assert revision == "20260715_02"
-    assert {row.relname for row in relation_rows} == set(CASE_SPINE_TABLES)
+    assert revision == "20260716_06"
+    assert {row.relname for row in relation_rows} == set(TENANT_PERSISTENCE_TABLES)
     assert all(row.relrowsecurity and row.relforcerowsecurity for row in relation_rows)
     assert policies == {
         "tenant_isolation_cases",
@@ -245,6 +254,9 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
         "tenant_isolation_outbox_events",
         "tenant_isolation_consumer_inbox",
         "tenant_isolation_audit_events",
+        "tenant_isolation_artifacts",
+        "tenant_isolation_artifact_upload_intents",
+        "tenant_isolation_artifact_processing_events",
     }
 
     with _prepared_tenants(owner_engine):
@@ -391,9 +403,55 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                     "correlation_id": CORRELATION_A,
                 },
             )
+            connection.execute(
+                text(
+                    "INSERT INTO artifacts "
+                    "(id, organization_id, case_id, artifact_kind, classification, storage_key, "
+                    "sha256, byte_size, content_type, encryption_key_reference, retention_until) "
+                    "VALUES (:id, :organization_id, :case_id, 'network-config', 'raw', "
+                    "'org-a/cases/case-a/config-a.enc', :sha256, 128, 'text/plain', "
+                    "'local-kms-key-v1', CURRENT_TIMESTAMP + INTERVAL '30 days')"
+                ),
+                {
+                    "id": ARTIFACT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "case_id": CASE_A,
+                    "sha256": "e" * 64,
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO artifact_processing_events "
+                    "(id, organization_id, artifact_id, attempt, state, processor, "
+                    "processor_version, correlation_id, result_summary) "
+                    "VALUES (:id, :organization_id, :artifact_id, 1, 'quarantined', "
+                    "'malware-scanner', 'v1', :correlation_id, CAST(:summary AS jsonb))"
+                ),
+                {
+                    "id": ARTIFACT_PROCESSING_EVENT_A,
+                    "organization_id": ORGANIZATION_A,
+                    "artifact_id": ARTIFACT_A,
+                    "correlation_id": CORRELATION_A,
+                    "summary": '{"scan":"pending"}',
+                },
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO artifact_processing_events "
+                    "(organization_id, artifact_id, attempt, state, processor, "
+                    "processor_version, correlation_id) "
+                    "VALUES (:organization_id, :artifact_id, 1, 'verified', "
+                    "'malware-scanner', 'v1', :correlation_id)"
+                ),
+                {
+                    "organization_id": ORGANIZATION_A,
+                    "artifact_id": ARTIFACT_A,
+                    "correlation_id": CORRELATION_A,
+                },
+            )
 
         with database.tenant_connection(ORGANIZATION_B) as connection:
-            for table in CASE_SPINE_TABLES:
+            for table in TENANT_PERSISTENCE_TABLES:
                 assert connection.scalar(text(f"SELECT count(*) FROM {table}")) == 0
             with pytest.raises(DBAPIError), connection.begin_nested():
                 connection.execute(
@@ -411,6 +469,38 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                         "correlation_id": CORRELATION_A,
                     },
                 )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO artifact_processing_events "
+                        "(organization_id, artifact_id, attempt, state, processor, "
+                        "processor_version, correlation_id) "
+                        "VALUES (:organization_id, :artifact_id, 2, 'verified', "
+                        "'malware-scanner', 'v1', :correlation_id)"
+                    ),
+                    {
+                        "organization_id": ORGANIZATION_A,
+                        "artifact_id": ARTIFACT_A,
+                        "correlation_id": CORRELATION_A,
+                    },
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text(
+                        "INSERT INTO artifacts "
+                        "(organization_id, case_id, artifact_kind, classification, storage_key, "
+                        "sha256, byte_size, content_type, encryption_key_reference, "
+                        "retention_until) "
+                        "VALUES (:organization_id, :case_id, 'network-config', 'raw', "
+                        "'forged/object.enc', :sha256, 1, 'text/plain', 'forged-key', "
+                        "CURRENT_TIMESTAMP + INTERVAL '1 day')"
+                    ),
+                    {
+                        "organization_id": ORGANIZATION_A,
+                        "case_id": CASE_A,
+                        "sha256": "f" * 64,
+                    },
+                )
 
         with database.tenant_connection(ORGANIZATION_A) as connection:
             with pytest.raises(DBAPIError), connection.begin_nested():
@@ -422,6 +512,28 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                 connection.execute(
                     text("UPDATE audit_events SET action = 'forged' WHERE id = :id"),
                     {"id": AUDIT_EVENT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text("UPDATE artifacts SET storage_key = 'forged/object.enc' WHERE id = :id"),
+                    {"id": ARTIFACT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM artifacts WHERE id = :id"),
+                    {"id": ARTIFACT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text(
+                        "UPDATE artifact_processing_events SET processor = 'forged' WHERE id = :id"
+                    ),
+                    {"id": ARTIFACT_PROCESSING_EVENT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM artifact_processing_events WHERE id = :id"),
+                    {"id": ARTIFACT_PROCESSING_EVENT_A},
                 )
             with pytest.raises(DBAPIError), connection.begin_nested():
                 connection.execute(

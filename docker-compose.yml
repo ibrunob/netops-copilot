@@ -34,6 +34,17 @@ services:
       NETOPS_DEPENDENCIES__TEMPORAL__PORT: "7233"
       NETOPS_DEPENDENCIES__KEYCLOAK__HOST: keycloak
       NETOPS_DEPENDENCIES__KEYCLOAK__PORT: "8080"
+      # Validate the browser-visible issuer while retrieving its signing keys
+      # over the private Compose network.
+      NETOPS_AUTH__ISSUER: "http://localhost:${KEYCLOAK_PORT:-8080}/realms/netops-dev"
+      NETOPS_AUTH__JWKS_URL: http://keycloak:8080/realms/netops-dev/protocol/openid-connect/certs
+      NETOPS_ARTIFACT_STORE__ENABLED: "true"
+      NETOPS_ARTIFACT_STORE__BUCKET: ${MINIO_BUCKET:-netops-artifacts}
+      # This is browser-visible for a direct, signed upload. The API performs
+      # completion verification through private Compose DNS instead.
+      NETOPS_ARTIFACT_STORE__PUBLIC_ENDPOINT_URL: "http://${NETOPS_OIDC_PUBLIC_HOST:-localhost}:${MINIO_API_PORT:-9000}"
+      NETOPS_ARTIFACT_STORE__ACCESS_KEY_ID: "${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in the root .env file}"
+      NETOPS_ARTIFACT_STORE__SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in the root .env file}"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -72,8 +83,26 @@ services:
       NETOPS_WORKER_GRACEFUL_SHUTDOWN_SECONDS: "30"
       NETOPS_WORKER_OTEL_TRACES_ENABLED: ${NETOPS_OTEL_TRACES_ENABLED:-true}
       NETOPS_WORKER_OTEL_EXPORTER_OTLP_ENDPOINT: "${NETOPS_OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      # This publisher remains disabled until a local tenant UUID is supplied.
+      # It uses the same unprivileged runtime role and tenant RLS boundary as API.
+      NETOPS_WORKER_OUTBOX_PUBLISHER_ENABLED: "${NETOPS_OUTBOX_PUBLISHER_ENABLED:-false}"
+      NETOPS_WORKER_DATABASE_URL: "postgresql+psycopg://netops_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in the root .env file}@postgres:5432/${POSTGRES_DB:-netops}"
+      NETOPS_WORKER_OUTBOX_ORGANIZATION_ID: "${NETOPS_OUTBOX_ORGANIZATION_ID:-}"
+      NETOPS_WORKER_OUTBOX_CONSUMER_NAME: "case-event-receipt.v1"
+      NETOPS_WORKER_OUTBOX_WORKER_ID: "netops-worker"
+      NETOPS_WORKER_CLAMAV_ENABLED: "${NETOPS_CLAMAV_ENABLED:-true}"
+      NETOPS_WORKER_CLAMAV_ADDRESS: clamav:3310
+      NETOPS_WORKER_CLAMAV_CONNECT_TIMEOUT_SECONDS: "5"
+      NETOPS_WORKER_CLAMAV_READ_TIMEOUT_SECONDS: "90"
+      NETOPS_WORKER_CLAMAV_MAX_SCAN_BYTES: "${NETOPS_CLAMAV_MAX_SCAN_BYTES:-104857600}"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
       temporal:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
 
   # The API runs only with the unprivileged application role. Alembic executes
@@ -106,6 +135,18 @@ services:
       # Server-only; never promote this to NEXT_PUBLIC_* because browsers must
       # not receive internal Compose DNS or any API credential configuration.
       NETOPS_API_BASE_URL: http://api:8000
+      # The browser follows the public issuer. Discovery and code exchange use
+      # private DNS so the BFF never has to hairpin through host loopback.
+      NETOPS_OIDC_ISSUER: "http://localhost:${KEYCLOAK_PORT:-8080}/realms/netops-dev"
+      NETOPS_OIDC_DISCOVERY_URL: http://keycloak:8080/realms/netops-dev/.well-known/openid-configuration
+      NETOPS_OIDC_TOKEN_ENDPOINT: http://keycloak:8080/realms/netops-dev/protocol/openid-connect/token
+      NETOPS_OIDC_CLIENT_ID: netops-web
+      # The default is the safe browser-local host. Set the host to 0.0.0.0
+      # only for the in-app HTTP development browser together with the explicit
+      # local-only insecure cookie toggle below.
+      NETOPS_OIDC_REDIRECT_URI: "http://${NETOPS_OIDC_PUBLIC_HOST:-localhost}:${WEB_PORT:-3000}/auth/callback"
+      NETOPS_COOKIE_SECURE: "${NETOPS_COOKIE_SECURE:-true}"
+      NETOPS_SESSION_ENCRYPTION_SECRET: "${NETOPS_SESSION_ENCRYPTION_SECRET:?Run make env to generate NETOPS_SESSION_ENCRYPTION_SECRET in the root .env file}"
     depends_on:
       api:
         # The API's current health probe is application-process liveness. The
@@ -223,6 +264,21 @@ services:
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
 
+  # Quarantined artifacts are streamed to this private service by the worker.
+  # No host port is published: only Compose services can reach clamd.
+  clamav:
+    # Pin an official multi-architecture tag so the local demo also starts on
+    # Apple Silicon (the former 1.4.3 Alpine base tag was amd64-only).
+    image: clamav/clamav:1.5.3_base-debian13-slim
+    profiles: ["core"]
+    <<: *local-restart
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --config-file=/etc/clamav/clamd.conf --ping 1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+
   temporal:
     image: temporalio/auto-setup:1.25.2
     profiles: ["core"]
@@ -282,6 +338,9 @@ services:
       KC_DB_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}"
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_PORT: 8080
+      # OIDC metadata and token `iss` must name the browser-reachable address;
+      # service DNS is private to Compose and used only by server components.
+      KC_HOSTNAME: "http://localhost:${KEYCLOAK_PORT:-8080}"
     ports:
       - "127.0.0.1:${KEYCLOAK_PORT:-8080}:8080"
     volumes:

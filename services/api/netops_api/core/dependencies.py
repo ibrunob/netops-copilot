@@ -12,6 +12,7 @@ from sqlalchemy import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
 from netops_api.api.errors import ApiError
+from netops_api.application.artifacts import ArtifactStore, MinioArtifactStore
 from netops_api.core.auth import (
     AuthenticatedPrincipal,
     AuthenticationError,
@@ -37,10 +38,45 @@ class ApplicationDependencies:
     settings: Settings
     token_verifier: JwtTokenVerifier
     database: TenantDatabase | None
+    artifact_store: ArtifactStore | None = None
 
 
 def build_dependencies(settings: Settings) -> ApplicationDependencies:
     """Construct the service container at application startup."""
+    artifact_store = None
+    if settings.artifact_store.enabled:
+        access_key_id = settings.artifact_store.access_key_id
+        secret_access_key = settings.artifact_store.secret_access_key
+        if access_key_id is None or secret_access_key is None:
+            raise RuntimeError(
+                "Artifact storage is enabled but MinIO credentials are not configured."
+            )
+        import boto3  # type: ignore[import-untyped]
+
+        client_kwargs = {
+            "aws_access_key_id": access_key_id,
+            "aws_secret_access_key": secret_access_key.get_secret_value(),
+            "config": boto3.session.Config(
+                signature_version="s3v4", s3={"addressing_style": "path"}
+            ),
+            "region_name": "us-east-1",
+        }
+        presign_client = boto3.client(
+            "s3",
+            endpoint_url=settings.artifact_store.public_endpoint_url,
+            **client_kwargs,
+        )
+        private_minio = settings.dependencies.minio
+        head_client = boto3.client(
+            "s3",
+            endpoint_url=f"http://{private_minio.host}:{private_minio.port}",
+            **client_kwargs,
+        )
+        artifact_store = MinioArtifactStore(
+            client=presign_client,
+            head_client=head_client,
+            settings=settings.artifact_store,
+        )
     return ApplicationDependencies(
         settings=settings,
         token_verifier=JwtTokenVerifier.from_settings(settings.auth),
@@ -49,6 +85,7 @@ def build_dependencies(settings: Settings) -> ApplicationDependencies:
             if settings.database_url is not None
             else None
         ),
+        artifact_store=artifact_store,
     )
 
 
