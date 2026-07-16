@@ -70,9 +70,7 @@ class TenantCaseEventFeed:
             rows = self._mappings(self._connection.execute(_SELECT_INITIAL_PAGE, parameters))
         else:
             parameters["after_event_id"] = after_event_id
-            cursor = self._one_or_none(
-                self._connection.execute(_SELECT_VISIBLE_CURSOR, parameters)
-            )
+            cursor = self._one_or_none(self._connection.execute(_SELECT_VISIBLE_CURSOR, parameters))
             if cursor is None:
                 raise EventCursorNotFoundError(after_event_id)
             parameters["after_occurred_at"] = _datetime(cursor["occurred_at"])

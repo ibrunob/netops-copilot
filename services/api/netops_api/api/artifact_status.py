@@ -64,9 +64,9 @@ def list_case_artifact_statuses(
             message="The signed-in user lacks a case-read role.",
         ) from exc
     _require_visible_case(case_id, principal, repository)
-    statuses = TenantArtifactStatusRepository(
-        connection, principal.organization_id
-    ).list_for_case(case_id)
+    statuses = TenantArtifactStatusRepository(connection, principal.organization_id).list_for_case(
+        case_id
+    )
     return CaseArtifactStatusListResponse(
         items=tuple(
             ArtifactStatusResponse(

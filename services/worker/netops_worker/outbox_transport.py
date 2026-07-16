@@ -69,9 +69,8 @@ class DurableInboxReceiptTransport:
         if event.organization_id != self._organization_id:
             raise ValueError("Outbox event organization does not match this publisher scope.")
         processed_at = self._clock()
-        if (
-            processed_at.tzinfo is not UTC
-            or processed_at.utcoffset() != UTC.utcoffset(processed_at)
+        if processed_at.tzinfo is not UTC or processed_at.utcoffset() != UTC.utcoffset(
+            processed_at
         ):
             raise ValueError("clock must return a timezone-aware UTC datetime.")
         with self._database.tenant_connection(self._organization_id) as connection:

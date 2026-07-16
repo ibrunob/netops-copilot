@@ -132,22 +132,23 @@ def test_durable_receipt_transport_uses_rls_and_deduplicates_recovery_replay(
                 worker_id="worker-receipt-contract", now=NOW
             )[0]
 
-        transport = DurableInboxReceiptTransport(
-            database, ORGANIZATION_A, clock=lambda: NOW
-        )
+        transport = DurableInboxReceiptTransport(database, ORGANIZATION_A, clock=lambda: NOW)
         transport.publish(event)
         # This models a worker crash after durable delivery but before the
         # outbox acknowledgement: replay must remain an exact-once receipt.
         transport.publish(event)
 
         with database.tenant_connection(ORGANIZATION_A) as connection:
-            assert connection.scalar(
-                text(
-                    "SELECT count(*) FROM consumer_inbox "
-                    "WHERE consumer_name = 'case-event-receipt.v1' AND event_id = :event_id"
-                ),
-                {"event_id": event.case_event_id},
-            ) == 1
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT count(*) FROM consumer_inbox "
+                        "WHERE consumer_name = 'case-event-receipt.v1' AND event_id = :event_id"
+                    ),
+                    {"event_id": event.case_event_id},
+                )
+                == 1
+            )
 
 
 def test_outbox_publisher_delivers_durable_receipt_then_acknowledges(
@@ -163,9 +164,10 @@ def test_outbox_publisher_delivers_durable_receipt_then_acknowledges(
         assert result.published == 1
         with database.tenant_connection(ORGANIZATION_A) as connection:
             assert connection.scalar(text("SELECT count(*) FROM consumer_inbox")) == 1
-            assert connection.scalar(
-                text("SELECT published_at IS NOT NULL FROM outbox_events")
-            ) is True
+            assert (
+                connection.scalar(text("SELECT published_at IS NOT NULL FROM outbox_events"))
+                is True
+            )
 
 
 def test_outbox_publisher_recovers_ack_crash_without_duplicate_durable_receipt(
@@ -186,7 +188,8 @@ def test_outbox_publisher_recovers_ack_crash_without_duplicate_durable_receipt(
         assert recovered.published == 1
         with database.tenant_connection(ORGANIZATION_A) as connection:
             assert connection.scalar(text("SELECT count(*) FROM consumer_inbox")) == 1
-            assert connection.scalar(
-                text("SELECT published_at IS NOT NULL FROM outbox_events")
-            ) is True
+            assert (
+                connection.scalar(text("SELECT published_at IS NOT NULL FROM outbox_events"))
+                is True
+            )
             assert connection.scalar(text("SELECT attempt_count FROM outbox_events")) == 2

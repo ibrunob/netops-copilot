@@ -202,14 +202,18 @@ class TenantConsumerInbox:
         )
         if result.mappings().one_or_none() is not None:
             return True
-        existing = self._connection.execute(
-            _SELECT_CONSUMER_PAYLOAD_SHA256,
-            {
-                "organization_id": self._organization_id,
-                "consumer_name": consumer_name.strip(),
-                "event_id": event_id,
-            },
-        ).mappings().one_or_none()
+        existing = (
+            self._connection.execute(
+                _SELECT_CONSUMER_PAYLOAD_SHA256,
+                {
+                    "organization_id": self._organization_id,
+                    "consumer_name": consumer_name.strip(),
+                    "event_id": event_id,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
         if existing is None:
             raise RuntimeError("Consumer deduplication conflict did not retain its receipt.")
         if str(existing["payload_sha256"]) != payload_sha256:

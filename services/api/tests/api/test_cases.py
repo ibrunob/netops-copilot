@@ -113,8 +113,7 @@ class FakeCaseRepository:
             for case in visible
             if (
                 query is None
-                or query.lower()
-                in f"{case.title} {case.category or ''} {case.case_id}".lower()
+                or query.lower() in f"{case.title} {case.category or ''} {case.case_id}".lower()
             )
             and (state is None or case.state is state)
             and (severity is None or case.severity == severity)
