@@ -219,7 +219,7 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                 "FROM pg_class JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace "
                 "WHERE nspname = 'public' AND relname IN "
                 "('cases', 'case_inputs', 'case_events', 'case_transitions', "
-                "'outbox_events', 'consumer_inbox')"
+                "'outbox_events', 'consumer_inbox', 'audit_events')"
             )
         ).all()
         policies = set(
@@ -228,14 +228,14 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                     "SELECT policyname FROM pg_policies "
                     "WHERE schemaname = 'public' AND tablename IN "
                     "('cases', 'case_inputs', 'case_events', 'case_transitions', "
-                    "'outbox_events', 'consumer_inbox')"
+                "'outbox_events', 'consumer_inbox', 'audit_events')"
                 )
             ).all()
         )
         revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
 
     assert revision == "20260715_02"
-    assert {row.relname for row in relation_rows} == set(CASE_SPINE_TABLES) - {"audit_events"}
+    assert {row.relname for row in relation_rows} == set(CASE_SPINE_TABLES)
     assert all(row.relrowsecurity and row.relforcerowsecurity for row in relation_rows)
     assert policies == {
         "tenant_isolation_cases",
@@ -244,6 +244,7 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
         "tenant_isolation_case_transitions",
         "tenant_isolation_outbox_events",
         "tenant_isolation_consumer_inbox",
+        "tenant_isolation_audit_events",
     }
 
     with _prepared_tenants(owner_engine):
@@ -419,6 +420,11 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                 )
             with pytest.raises(DBAPIError), connection.begin_nested():
                 connection.execute(
+                    text("UPDATE audit_events SET action = 'forged' WHERE id = :id"),
+                    {"id": AUDIT_EVENT_A},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
                     text(
                         "INSERT INTO case_transitions "
                         "(id, organization_id, case_id, from_state, to_state, version, actor_id, "
@@ -457,4 +463,9 @@ def test_case_spine_schema_enforces_rls_and_append_only_history(
                         "UPDATE outbox_events SET payload = CAST(:payload AS jsonb) WHERE id = :id"
                     ),
                     {"id": OUTBOX_EVENT_A, "payload": '{"forged":true}'},
+                )
+            with pytest.raises(DBAPIError), connection.begin_nested():
+                connection.execute(
+                    text("UPDATE audit_events SET action = 'forged' WHERE id = :id"),
+                    {"id": AUDIT_EVENT_A},
                 )

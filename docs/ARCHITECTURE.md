@@ -54,6 +54,8 @@ flowchart LR
 
 Every organization-owned row includes `organization_id`; PostgreSQL Row-Level Security is enabled and application authorization is applied as a second barrier. The authenticated principal, not a client-supplied tenant value, sets the database tenant context.
 
+The `netops_app` database credential is a trusted infrastructure secret, available only to the API/worker deployment identity and never to browsers, connector agents, or operators. RLS is designed to fail closed for missing, malformed, or leaked transaction context within that boundary; it cannot protect against a holder of the raw runtime credential deliberately setting another tenant UUID. Production secret distribution, network access, and audit controls must preserve that boundary.
+
 Roles are `org_admin`, `operator`, `approver`, `auditor`, `integration_admin`, and `platform_admin`. Asset ownership/environment policy additionally controls access. Frontend permissions only shape the interface; the API and database make the authorization decision.
 
 Raw audio and config files are encrypted artifacts in object storage. Before embedding or a model call, a worker produces a policy-governed redacted derivative. Redaction targets pre-shared keys, passwords, private keys, SNMP communities, bearer tokens, and API keys. Raw configuration, IP addresses, audio, and ticket text never appear in metrics labels or traces.

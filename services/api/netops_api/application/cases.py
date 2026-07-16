@@ -205,9 +205,9 @@ class CaseService:
 class TenantCaseRepository:
     """PostgreSQL repository operating only inside a verified tenant transaction.
 
-    The M2 schema migration will create the tables named in these statements. Keeping
-    the SQL here now makes the intended transaction contract explicit without
-    prematurely adding an unaudited migration to the M1 foundation.
+    The M2 schema migration owns the tables named in these statements. Every command
+    writes its projection, immutable history, outbox event, and audit fact through
+    one savepoint.
     """
 
     def __init__(self, connection: Connection, organization_id: UUID) -> None:
@@ -261,6 +261,18 @@ class TenantCaseRepository:
                 transition_id=None,
                 request_sha256=command.request_sha256,
             )
+            self._insert_audit_event(
+                actor=command.actor,
+                action="case.created",
+                correlation_id=command.correlation_id,
+                occurred_at=command.occurred_at,
+                details={
+                    "case_id": str(case.case_id),
+                    "event_id": str(event.event_id),
+                    "event_type": event.event_type,
+                    "aggregate_version": event.aggregate_version,
+                },
+            )
             return CreateCaseResult(case=case, created=True)
 
     def get_snapshot(self, case_id: UUID) -> CaseSnapshot:
@@ -301,6 +313,21 @@ class TenantCaseRepository:
             self._insert_event_and_outbox(
                 outcome.event,
                 transition_id=outcome.event.transition_id,
+            )
+            self._insert_audit_event(
+                actor=actor,
+                action="case.transitioned",
+                correlation_id=outcome.event.correlation_id,
+                occurred_at=outcome.event.occurred_at,
+                details={
+                    "case_id": str(outcome.snapshot.case_id),
+                    "event_id": str(outcome.event.event_id),
+                    "transition_id": str(outcome.transition.transition_id),
+                    "event_type": outcome.event.event_type,
+                    "aggregate_version": outcome.event.aggregate_version,
+                    "from_state": outcome.transition.from_state.value,
+                    "to_state": outcome.transition.to_state.value,
+                },
             )
             return _case_record(updated)
 
@@ -442,6 +469,34 @@ class TenantCaseRepository:
             },
         )
 
+    def _insert_audit_event(
+        self,
+        *,
+        actor: Actor,
+        action: str,
+        correlation_id: UUID,
+        occurred_at: datetime,
+        details: Mapping[str, object],
+    ) -> None:
+        """Record a tenant-visible, immutable audit fact in the command savepoint.
+
+        Audit details intentionally contain identifiers and workflow facts only.  In
+        particular, user input, case titles, free-form notes, authentication claims,
+        and idempotency fingerprints must never be copied into this append-only log.
+        """
+        self._connection.execute(
+            _INSERT_AUDIT_EVENT,
+            {
+                "audit_event_id": uuid4(),
+                "organization_id": self._organization_id,
+                "actor_subject": _audit_subject(actor),
+                "action": action,
+                "correlation_id": correlation_id,
+                "details": json.dumps(details, sort_keys=True, separators=(",", ":")),
+                "occurred_at": occurred_at,
+            },
+        )
+
     @contextmanager
     def _atomic(self) -> Iterator[None]:
         """Use a savepoint so a failed immutable write cannot leak a partial command."""
@@ -511,6 +566,11 @@ def _datetime(value: object) -> datetime:
     if not isinstance(value, datetime):
         raise TypeError("Database datetime columns must be returned as datetime values.")
     return value
+
+
+def _audit_subject(actor: Actor) -> str:
+    """Return a stable pseudonymous subject without copying authentication claims."""
+    return f"{actor.kind.value}:{actor.actor_id}"
 
 
 _INSERT_CASE = text(
@@ -595,6 +655,16 @@ _INSERT_OUTBOX = text(
     ) VALUES (
       :outbox_id, :organization_id, :case_id, :case_event_id, :event_type, :aggregate_version,
       :correlation_id, CAST(:payload AS jsonb), :available_at, :created_at
+    )
+    """
+)
+_INSERT_AUDIT_EVENT = text(
+    """
+    INSERT INTO audit_events (
+      id, organization_id, actor_subject, action, correlation_id, details, occurred_at
+    ) VALUES (
+      :audit_event_id, :organization_id, :actor_subject, :action, :correlation_id,
+      CAST(:details AS json), :occurred_at
     )
     """
 )

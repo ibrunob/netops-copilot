@@ -14,7 +14,7 @@ class DomainError(Exception):
     """Base class for errors that callers can map to a stable API response."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class VersionConflictError(DomainError):
     """Raised when a command was composed from an outdated case projection."""
 
@@ -29,7 +29,7 @@ class VersionConflictError(DomainError):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class CaseIdentityMismatchError(DomainError):
     """Raised when a transition command is applied to a different case."""
 
@@ -40,7 +40,7 @@ class CaseIdentityMismatchError(DomainError):
         return "The transition command does not belong to the supplied case."
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class InvalidTransitionError(DomainError):
     """Raised when a state edge is absent from the case state machine."""
 
@@ -51,7 +51,7 @@ class InvalidTransitionError(DomainError):
         return f"A case cannot transition from {self.from_state} to {self.to_state}."
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class TransitionAuthorizationError(DomainError):
     """Raised when an actor kind or role lacks authority for a state change."""
 
@@ -61,7 +61,7 @@ class TransitionAuthorizationError(DomainError):
         return self.message
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class TransitionConstraintError(DomainError):
     """Raised when a state-specific evidence or workflow invariant is missing."""
 

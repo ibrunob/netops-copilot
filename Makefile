@@ -155,7 +155,7 @@ test-rls: test-migrate check-tools check-locks ## Run real PostgreSQL tenant-iso
 		NETOPS_RLS_OWNER_DATABASE_URL="postgresql+psycopg://$${POSTGRES_TEST_USER:-netops_test}:$$POSTGRES_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
 		NETOPS_RLS_TEST_DATABASE_URL="postgresql+psycopg://netops_app:$$POSTGRES_APP_PASSWORD@127.0.0.1:$${POSTGRES_TEST_PORT:-5433}/$${POSTGRES_TEST_DB:-netops_test}"; \
 		export NETOPS_RLS_OWNER_DATABASE_URL NETOPS_RLS_TEST_DATABASE_URL; \
-		$(UV) run --frozen pytest -m integration services/api/tests/integration/test_tenant_rls.py
+		$(UV) run --frozen pytest -m integration services/api/tests/integration
 
 db-backup: env ## Create a custom-format application DB backup at BACKUP_FILE (default: tmp/backups/netops-local.dump).
 

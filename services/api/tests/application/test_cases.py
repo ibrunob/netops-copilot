@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from json import loads
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -119,23 +120,36 @@ def create_command() -> CreateCaseCommand:
 
 
 def test_create_persists_projection_and_immutable_event_outbox_records() -> None:
-    connection = FakeConnection([FakeResult(case_row()), FakeResult(), FakeResult()])
+    connection = FakeConnection([FakeResult(case_row()), FakeResult(), FakeResult(), FakeResult()])
     repository = TenantCaseRepository(connection, ORGANIZATION_ID)  # type: ignore[arg-type]
+    command = create_command()
 
-    result = repository.create_case(create_command())
+    result = repository.create_case(command)
 
     assert result.created is True
     assert result.case.title == "VPN tunnel down"
     assert connection.savepoints == 1
-    assert len(connection.executed) == 3
+    assert len(connection.executed) == 4
     event_parameters = connection.executed[1][1]
     outbox_parameters = connection.executed[2][1]
+    audit_parameters = connection.executed[3][1]
     assert event_parameters["transition_id"] is None
     assert event_parameters["correlation_id"] == CORRELATION_ID
     assert '"request_sha256"' in event_parameters["payload"]
     assert outbox_parameters["case_event_id"] == event_parameters["event_id"]
     assert outbox_parameters["case_id"] == result.case.case_id
     assert outbox_parameters["outbox_id"] != event_parameters["event_id"]
+    assert audit_parameters["actor_subject"] == f"human:{ACTOR_ID}"
+    assert audit_parameters["action"] == "case.created"
+    assert audit_parameters["correlation_id"] == CORRELATION_ID
+    assert loads(audit_parameters["details"]) == {
+        "aggregate_version": 0,
+        "case_id": str(CASE_ID),
+        "event_id": str(event_parameters["event_id"]),
+        "event_type": "case.created.v1",
+    }
+    assert "VPN tunnel down" not in audit_parameters["details"]
+    assert command.idempotency_key not in audit_parameters["details"]
 
 
 def test_create_idempotency_replay_returns_original_case_only_when_request_matches() -> None:
@@ -160,6 +174,7 @@ def test_create_idempotency_replay_returns_original_case_only_when_request_match
         updated_at=NOW,
     )
     assert len(connection.executed) == 2
+    assert all("audit_events" not in statement for statement, _ in connection.executed)
 
 
 def test_create_rejects_idempotency_key_reused_for_different_canonical_request() -> None:
@@ -171,6 +186,8 @@ def test_create_rejects_idempotency_key_reused_for_different_canonical_request()
 
     with pytest.raises(IdempotencyConflictError):
         repository.create_case(command)
+
+    assert all("audit_events" not in statement for statement, _ in connection.executed)
 
 
 @dataclass
@@ -254,7 +271,7 @@ def test_repository_uses_compare_and_swap_then_captures_transition_actor_and_out
     )
     outcome = apply_transition(CaseSnapshot(CASE_ID, CaseState.NEW, 0), command)
     connection = FakeConnection(
-        [FakeResult(case_row(version=1)), FakeResult(), FakeResult(), FakeResult()]
+        [FakeResult(case_row(version=1)), FakeResult(), FakeResult(), FakeResult(), FakeResult()]
     )
     repository = TenantCaseRepository(connection, ORGANIZATION_ID)  # type: ignore[arg-type]
 
@@ -266,12 +283,25 @@ def test_repository_uses_compare_and_swap_then_captures_transition_actor_and_out
     transition_parameters = connection.executed[1][1]
     event_parameters = connection.executed[2][1]
     outbox_parameters = connection.executed[3][1]
+    audit_parameters = connection.executed[4][1]
     assert update_parameters["expected_version"] == 0
     assert transition_parameters["actor_id"] == ACTOR_ID
     assert transition_parameters["actor_kind"] == "human"
     assert transition_parameters["correlation_id"] == CORRELATION_ID
     assert event_parameters["transition_id"] == command.transition_id
     assert outbox_parameters["case_event_id"] == command.event_id
+    assert audit_parameters["actor_subject"] == f"human:{ACTOR_ID}"
+    assert audit_parameters["action"] == "case.transitioned"
+    assert audit_parameters["correlation_id"] == CORRELATION_ID
+    assert loads(audit_parameters["details"]) == {
+        "aggregate_version": 1,
+        "case_id": str(CASE_ID),
+        "event_id": str(command.event_id),
+        "event_type": "case.investigating.v1",
+        "from_state": "new",
+        "to_state": "investigating",
+        "transition_id": str(command.transition_id),
+    }
 
 
 def test_repository_reads_tenant_scoped_list_and_event_timeline() -> None:
